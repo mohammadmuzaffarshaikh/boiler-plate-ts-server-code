@@ -1,0 +1,14 @@
+{
+    "cSpell.words": [
+        "Muzaffar",
+        "Shaikh"
+    ],
+    "cSpell.customDictionaries": {
+        "custom-dictionary-workspace": {
+            "name": "custom-dictionary-workspace",
+            "path": "${workspaceFolder:boiler-plate-code}/.cspell/custom-dictionary-workspace.txt",
+            "addWords": true,
+            "scope": "workspace"
+        }
+    }
+}

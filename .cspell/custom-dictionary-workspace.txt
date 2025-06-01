@@ -1,0 +1,6 @@
+# Custom Dictionary Words
+prefs
+sendgrid
+Muzaffar
+Shaikh
+uncolorize
