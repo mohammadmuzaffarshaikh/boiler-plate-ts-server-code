@@ -7,31 +7,68 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User model
+enum OrgUserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
 
-enum UserStatus {
+enum OrgUserStatus {
   ACTIVE
   INVITED
   INACTIVE
 }
 
-enum UserRoles {
-  SUPER_ADMIN
-  ADMIN
-  USER
-  GUEST
+enum OrganizationStatus {
+  ACTIVE
+  INACTIVE
 }
 
+// ---------- MODELS ----------
+
 model User {
-  id        String     @id @default(uuid())
-  email     String     @unique
-  password  String
-  firstName String?
-  lastName  String?
-  status    UserStatus @default(ACTIVE)
-  role      UserRoles  @default(ADMIN)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id             String              @id @default(uuid())
+  email          String              @unique
+  password       String
+  firstName      String?
+  lastName       String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  organizations  UserOrganization[]
 
   @@map("users")
+}
+
+model Organization {
+  id          String               @id @default(uuid())
+  name        String
+  email       String?              @unique
+  phone       String?
+  colorTheme  String?              @default("zinc")  // UI theme
+  status      OrganizationStatus   @default(ACTIVE)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  users       UserOrganization[]
+
+  @@map("organizations")
+}
+
+model UserOrganization {
+  id             String           @id @default(uuid())
+  userId         String
+  organizationId String
+
+  role           OrgUserRole      @default(MEMBER)
+  status         OrgUserStatus    @default(ACTIVE)
+  isPrimary      Boolean          @default(false)
+  joinedAt       DateTime         @default(now())
+
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+  @@map("user_organizations")
 }

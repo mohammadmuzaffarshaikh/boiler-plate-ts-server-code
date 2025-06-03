@@ -23,29 +23,18 @@ interface SocialLoginConfig {
   google: {
     clientId: string;
   };
-  facebook: {
-    clientId: string;
-  };
 }
 
 interface ReCaptchaConfig {
   secret: string;
 }
 
-interface EmailConfig {
-  provider: string;
-  key: string;
-  smtp: {
-    host: string;
-    port: number;
-    auth: {
-      user: string;
-      pass: string;
-    };
-  };
-  from: string;
+interface AwsConfig {
+  accessKeyId: string;
+  secretAccessKey: string;
+  s3Bucket: string;
+  region: string;
 }
-
 interface Config {
   env: string;
   port: number;
@@ -54,7 +43,7 @@ interface Config {
   jwt: JwtConfig;
   socialLogin: SocialLoginConfig;
   reCaptcha: ReCaptchaConfig;
-  email: EmailConfig;
+  aws: AwsConfig;
 }
 
 // Joi schema for environment variables
@@ -62,6 +51,7 @@ const envVarsSchema = Joi.object({
   NODE_ENV: Joi.string().valid("production", "development", "test").required(),
   PORT: Joi.number().default(3000),
   DATABASE_URL: Joi.string().required().description("DB url"),
+
   JWT_SECRET: Joi.string().required().description("JWT secret key"),
   JWT_ACCESS_EXPIRATION_MINUTES: Joi.number()
     .default(30)
@@ -75,24 +65,17 @@ const envVarsSchema = Joi.object({
   JWT_VERIFY_EMAIL_EXPIRATION_MINUTES: Joi.number()
     .default(10)
     .description("minutes after which verify email token expires"),
+
   GOOGLE_CLIENT_ID: Joi.string().description(
     "Google Client ID for social login"
   ),
-  FACEBOOK_APP_ID: Joi.string().description("Facebook App ID for social login"),
   GOOGLE_RECAPTCHA_SECRET: Joi.string().description(
     "Google reCAPTCHA secret key"
   ),
-  EMAIL_PROVIDER: Joi.string().description(
-    "Email provider (sendgrid, aws, nodemailer)"
-  ),
-  EMAIL_PROVIDER_KEY: Joi.string().description(
-    "Key for email provider (sendgrid, aws)"
-  ),
-  SMTP_HOST: Joi.string().description("SMTP server host"),
-  SMTP_PORT: Joi.number().description("SMTP server port"),
-  SMTP_USERNAME: Joi.string().description("SMTP username"),
-  SMTP_PASSWORD: Joi.string().description("SMTP password"),
-  EMAIL_FROM: Joi.string().description('The "from" email address'),
+  AWS_ACCESS_KEY_ID: Joi.string().description("Aws access key"),
+  AWS_SECRET_ACCESS_KEY: Joi.string().description("Aws secret access key"),
+  AWS_S3_BUCKET: Joi.string().description("Aws S3 bucket name"),
+  AWS_REGION: Joi.string().description("Aws region"),
 }).unknown();
 
 // Validate environment variables
@@ -125,25 +108,15 @@ const config: Config = {
     google: {
       clientId: envVars.GOOGLE_CLIENT_ID,
     },
-    facebook: {
-      clientId: envVars.FACEBOOK_APP_ID,
-    },
   },
   reCaptcha: {
     secret: envVars.GOOGLE_RECAPTCHA_SECRET,
   },
-  email: {
-    provider: envVars.EMAIL_PROVIDER,
-    key: envVars.EMAIL_PROVIDER_KEY,
-    smtp: {
-      host: envVars.SMTP_HOST,
-      port: envVars.SMTP_PORT,
-      auth: {
-        user: envVars.SMTP_USERNAME,
-        pass: envVars.SMTP_PASSWORD,
-      },
-    },
-    from: envVars.EMAIL_FROM,
+  aws: {
+    accessKeyId: envVars.AWS_ACCESS_KEY_ID,
+    secretAccessKey: envVars.AWS_SECRET_ACCESS_KEY,
+    s3Bucket: envVars.AWS_S3_BUCKET,
+    region: envVars.AWS_REGION,
   },
 };
 

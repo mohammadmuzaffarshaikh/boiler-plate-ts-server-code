@@ -1,12 +1,12 @@
 import httpStatus from "http-status";
 import { prisma } from "../utils/prisma-client";
 import ApiError from "../utils/api-error";
-import { hashString } from "../utils/hash"; 
-import { isEmailTaken } from "../utils/helpers";
+import { hashString } from "../utils/hash";
+import { isEmailTakenUser } from "../utils/helpers";
 import { User } from "@prisma/client";
 
 export const createUser = async (userBody: User): Promise<User> => {
-  if (await isEmailTaken(userBody.email!)) {
+  if (await isEmailTakenUser(userBody.email!)) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
       "User already exists with this email"
@@ -27,9 +27,17 @@ export const getUserById = async (id: string): Promise<User | null> => {
   });
 };
 
-export const getUserByEmail = async (email: string): Promise<User | null> => {
-  return prisma.user.findUnique({
+export const getUserByEmail = async (email: string) => {
+  return await prisma.user.findUnique({
     where: { email },
+    include: {
+      organizations: {
+        where: { isPrimary: true },
+        include: {
+          organization: true,
+        },
+      },
+    },
   });
 };
 
@@ -41,7 +49,7 @@ export const updateUserById = async (
   const user = await getUserById(userId);
   if (!user) throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
 
-  if (updateBody.email && (await isEmailTaken(updateBody.email, userId))) {
+  if (updateBody.email && (await isEmailTakenUser(updateBody.email, userId))) {
     throw new ApiError(
       httpStatus.BAD_REQUEST,
       "User already exists with this email"

@@ -9,13 +9,10 @@ import { User } from "@prisma/client";
 export const loginUserWithEmailAndPassword = async (
   email: string,
   password: string
-): Promise<User> => {
+) => {
   const user = await userService.getUserByEmail(email);
 
-  const isValid =
-    user &&
-    user.status === "ACTIVE" &&
-    (await compareHash(password, user.password));
+  const isValid = user && (await compareHash(password, user.password));
 
   if (!isValid) {
     throw new ApiError(

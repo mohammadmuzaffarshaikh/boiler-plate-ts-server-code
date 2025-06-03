@@ -9,6 +9,8 @@ import { roleRights } from "../config/role-rights";
 interface AuthRequest extends Request {
   user?: any; // Should ideally match your Prisma User type
   _user?: string; // User ID (UUID string)
+  _org?: string;
+  role?: string;
 }
 
 // Passport verification callback
@@ -26,31 +28,26 @@ const verifyCallback =
       );
     }
 
-    if (user.status !== "ACTIVE") {
-      return reject(
-        new ApiError(httpStatus.UNAUTHORIZED, "User is not active.")
-      );
-    }
+    // Already checked org + user status in jwtVerify
 
     req.user = user;
     req._user = user.id;
+    req._org = user.orgId;
+    req.role = user.orgRole;
 
     if (requiredRights.length) {
-      const userRights = roleRights.get(user.role);
-      if (!userRights) {
+      const rights = roleRights.get(user.orgRole); // use orgRole here
+      if (!rights) {
         return reject(
           new ApiError(
             httpStatus.FORBIDDEN,
-            `Role rights for user role ${user.role} are undefined.`
+            `Role rights for ${user.orgRole} are undefined.`
           )
         );
       }
 
-      const hasRequiredRights = requiredRights.every((right) =>
-        userRights.includes(right)
-      );
-
-      if (!hasRequiredRights && req.params.userId !== user.id) {
+      const hasRights = requiredRights.every((right) => rights.includes(right));
+      if (!hasRights && req.params.userId !== user.id) {
         return reject(new ApiError(httpStatus.FORBIDDEN, "Forbidden"));
       }
     }
@@ -104,8 +101,9 @@ const checkRole = (requiredRoles: string[]) => {
   };
 };
 
-export default {
+export {
   auth,
   // verifyInvitedUserToken,
   checkRole,
+  AuthRequest,
 };

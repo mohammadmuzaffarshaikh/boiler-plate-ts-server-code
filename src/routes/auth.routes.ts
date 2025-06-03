@@ -14,7 +14,7 @@ router.post(
 
 // Login route
 router.post(
-  "/login", 
+  "/login",
   validate(authValidation.login),
   authController.loginUserWithEmailAndPassword
 );
