@@ -25,50 +25,79 @@ enum OrganizationStatus {
   INACTIVE
 }
 
+enum TokenTypes {
+  REFRESH
+  RESET_PASSWORD
+  INVITE_USER
+  MFA
+}
+
 // ---------- MODELS ----------
 
 model User {
-  id             String              @id @default(uuid())
-  email          String              @unique
-  password       String
-  firstName      String?
-  lastName       String?
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  id           String  @id @default(uuid())
+  email        String  @unique
+  password     String
+  firstName    String?
+  lastName     String?
+  isMfaEnabled Boolean @default(false)
 
-  organizations  UserOrganization[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizations UserOrganization[]
+  Token         Token[]
 
   @@map("users")
 }
 
 model Organization {
-  id          String               @id @default(uuid())
-  name        String
-  email       String?              @unique
-  phone       String?
-  colorTheme  String?              @default("zinc")  // UI theme
-  status      OrganizationStatus   @default(ACTIVE)
-  createdAt   DateTime             @default(now())
-  updatedAt   DateTime             @updatedAt
+  id         String             @id @default(uuid())
+  name       String
+  email      String?            @unique
+  phone      String?
+  colorTheme String?            @default("zinc") // UI theme
+  status     OrganizationStatus @default(ACTIVE)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
 
-  users       UserOrganization[]
+  users UserOrganization[]
+  Token Token[]
 
   @@map("organizations")
 }
 
 model UserOrganization {
-  id             String           @id @default(uuid())
   userId         String
   organizationId String
 
-  role           OrgUserRole      @default(MEMBER)
-  status         OrgUserStatus    @default(ACTIVE)
-  isPrimary      Boolean          @default(false)
-  joinedAt       DateTime         @default(now())
+  role      OrgUserRole   @default(MEMBER)
+  status    OrgUserStatus @default(ACTIVE)
+  isPrimary Boolean       @default(false)
+  joinedAt  DateTime      @default(now())
 
-  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, organizationId])
+  @@id([userId, organizationId])
   @@map("user_organizations")
+}
+
+model Token {
+  id     String @id @default(uuid())
+  userId String
+
+  token     String
+  type      TokenTypes
+  expires   DateTime
+  createdAt DateTime   @default(now())
+  revokedAt DateTime?
+
+  // 👇 Optional org link, only for INVITE_USER
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("tokens")
 }

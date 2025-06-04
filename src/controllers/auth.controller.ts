@@ -10,6 +10,7 @@ import {
   userOrganizationService,
 } from "../services";
 import logger from "../config/logger";
+import { getCookieOptions } from "../config/cookies-option";
 
 const register = catchAsync(async (req: Request, res: Response) => {
   const { firstName, lastName, email } = req.body;
@@ -72,6 +73,16 @@ const loginUserWithEmailAndPassword = catchAsync(
       user?.organizations[0].organization.id
     );
 
+    const { refreshToken, refreshExpires } =
+      await tokenService.generateRefreshTokens(
+        user.id,
+        user?.organizations[0].organization.id
+      );
+
+    const cookieOptions = getCookieOptions(refreshExpires);
+
+    res.cookie("refresh-tk", refreshToken, cookieOptions);
+
     res.status(httpStatus.OK).send({
       status: "success",
       message: "Login successful. Welcome back!",
@@ -79,9 +90,20 @@ const loginUserWithEmailAndPassword = catchAsync(
         user: pick(user, ["id", "email", "firstName", "lastName"]),
         token,
         expires,
+        refreshToken, // For mobile applications
       },
     });
   }
 );
 
-export { register, loginUserWithEmailAndPassword };
+const validateIncommingRefreshToken = catchAsync(
+  async (req: Request, res: Response) => {
+    // working on this 
+  }
+);
+
+export {
+  register,
+  loginUserWithEmailAndPassword,
+  validateIncommingRefreshToken,
+};

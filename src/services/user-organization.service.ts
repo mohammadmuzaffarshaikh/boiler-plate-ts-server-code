@@ -11,9 +11,9 @@ type CreateUserOrganization = {
   role: OrgUserRole;
 };
 
-export const addUserOrganization = async (userBody: CreateUserOrganization) => {
+export const addUserOrganization = async (userOrgBody: CreateUserOrganization) => {
   const userOrganization = await prisma.userOrganization.create({
-    data: userBody,
+    data: userOrgBody,
   });
 
   return userOrganization;
