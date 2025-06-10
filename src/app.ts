@@ -6,12 +6,14 @@ import passport from "passport";
 import httpStatus from "http-status";
 import config from "./config/config";
 import morgan from "./config/morgan";
+import cookieParser from "cookie-parser";
 import { jwtStrategy } from "./config/passport";
 import { authLimiter } from "./middlewares/rate-limiter.middleware";
 import routes from "./routes";
 import { errorConverter, errorHandler } from "./middlewares/error.middleware";
 import ApiError from "./utils/api-error";
 import logger from "./config/logger";
+import { parse } from "path";
 
 const app: Express = express();
 
@@ -26,6 +28,9 @@ app.use(helmet());
 
 // JSON requests are received as plain text. We need to parse the JSON request body.
 app.use(express.json());
+
+// Parse cookies from request headers
+app.use(cookieParser());
 
 // Parse urlencoded request body if provided with any of the requests
 app.use(express.urlencoded({ extended: true }));
@@ -49,7 +54,7 @@ if (config.env === "production") {
 
 // Mount API routes
 logger.info("Mounting routes...");
-app.use("/", routes);
+app.use("/api", routes);
 logger.info("Routes mounted successfully");
 
 // Send back a 404 error for any unknown API request

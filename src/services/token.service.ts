@@ -59,62 +59,36 @@ export const saveToken = async (
   type: TokenTypes,
   orgId?: string
 ) => {
-  if (type === tokenTypes.INVITE_USER) {
-    if (!orgId) {
-      throw new ApiError(
-        httpStatus.BAD_REQUEST,
-        `For inviting user organization Id is required`
-      );
-    }
-    await prisma.token.create({
-      data: {
-        token,
-        expires,
-        user: { connect: { id: userId } },
-        type: tokenTypes.INVITE_USER,
-        organization: { connect: { id: orgId } },
-      },
-    });
-  } else {
-    await prisma.token.create({
-      data: {
-        token,
-        expires,
-        user: { connect: { id: userId } },
-        type,
-      },
-    });
-  }
+  await prisma.token.create({
+    data: {
+      token,
+      expires,
+      type,
+      user: { connect: { id: userId } },
+      ...(orgId && { organization: { connect: { id: orgId } } }),
+    },
+  });
 };
 
 /**
- * Fetch all tokens from db related to user and type
+ * Fetch all tokens from db related to user or type or organization
  * @param userId - The user ID to encode as `sub`
  * @param organizationId - The organization ID to encode as `org`
  * @param type - Token type (e.g. "REFRESH", "RESET_PASSWORD")
  * @returns Array of all tokens from db related to user and type
  */
 export const getTokens = async (
-  userId: string,
-  type: TokenTypes,
+  userId?: string,
+  type?: TokenTypes,
   organizationId?: string
 ) => {
-  if (organizationId && type === tokenTypes.INVITE_USER) {
-    return prisma.token.findMany({
-      where: {
-        userId,
-        type,
-        organizationId,
-      },
-    });
-  } else {
-    return prisma.token.findMany({
-      where: {
-        userId,
-        type,
-      },
-    });
-  }
+  return prisma.token.findMany({
+    where: {
+      ...(userId && { userId }),
+      ...(type && { type }),
+      ...(organizationId && { organizationId }),
+    },
+  });
 };
 
 /**
@@ -165,7 +139,8 @@ export const generateRefreshTokens = async (userId: string, orgId: string) => {
     userId,
     refreshToken,
     refreshTokenExpires.toDate(),
-    tokenTypes.REFRESH
+    tokenTypes.REFRESH,
+    orgId
   );
 
   return {
@@ -175,46 +150,42 @@ export const generateRefreshTokens = async (userId: string, orgId: string) => {
 };
 
 /**
- * Validate tokens for MFA don't use this one
+ * Validate stored tokens, don't use this function for access or MFA tokens
  * @param token - The token
  * @param type - The token type
- * @returns Refresh token and expiry date
+ * @returns token if valid, otherwise throws an error
  */
-export const validateTokens = async (token: string, type: string) => {
-  let payload;
+export const validateStoredToken = async (token: string, type: TokenTypes) => {
+  let payload: TokenPayload;
+
   try {
     payload = jwt.verify(token, config.jwt.secret) as TokenPayload;
-  } catch (err) {
+  } catch {
     throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid or expired token.");
   }
 
-  if (type === tokenTypes.REFRESH || type === tokenTypes.RESET_PASSWORD) {
-    const tokens = await getTokens(payload.sub?.toString(), type);
-    const matchedToken = tokens.find((tk) => tk.token === token);
-    if (!matchedToken) {
-      throw new ApiError(
-        httpStatus.UNAUTHORIZED,
-        "Unauthorized access: Token not found."
-      );
-    }
-    const now = new Date();
+  const tokens = await getTokens(
+    payload.sub.toString(),
+    type,
+    payload.org?.toString()
+  );
 
-    return { expired: matchedToken.expires < now, matchedToken };
-  } else if (type === tokenTypes.INVITE_USER) {
-    const tokens = await getTokens(
-      payload.sub?.toString() || "",
-      type,
-      payload.org.toString()
-    );
-    const matchedToken = tokens.find((tk) => tk.token === token);
-    if (!matchedToken) {
-      throw new ApiError(
-        httpStatus.UNAUTHORIZED,
-        "Unauthorized access: Token not found."
-      );
-    }
-    const now = new Date();
-
-    return { expired: matchedToken.expires < now, matchedToken };
+  const matchedToken = tokens.find((tk) => tk.token === token);
+  if (!matchedToken) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid or expired token.");
   }
+
+  return matchedToken;
+};
+
+/**
+ * Delete expired tokens from the database
+ * @returns void
+ */
+export const deleteExpiredTokens = async () => {
+  await prisma.token.deleteMany({
+    where: {
+      expires: { lt: new Date() },
+    },
+  });
 };

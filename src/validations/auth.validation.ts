@@ -25,6 +25,12 @@ const login: ValidationSchema = {
   }),
 };
 
+const refreshToken: ValidationSchema = {
+  body: Joi.object().keys({
+    refreshTk: Joi.string().optional().allow(""),
+  }),
+};
+
 // Validation schema for verifying OTP
 const verifyOtp: ValidationSchema = {
   body: Joi.object().keys({
@@ -67,6 +73,7 @@ const resetPassword: ValidationSchema = {
 export {
   register,
   login,
+  refreshToken,
   logout,
   forgotPassword,
   resetPassword,

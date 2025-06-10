@@ -19,4 +19,11 @@ router.post(
   authController.loginUserWithEmailAndPassword
 );
 
+// Refresh token route
+router.post(
+  "/refresh",
+  validate(authValidation.refreshToken),
+  authController.handleRefreshToken
+);
+
 export default router;

@@ -11,6 +11,14 @@ import {
 } from "../services";
 import logger from "../config/logger";
 import { getCookieOptions } from "../config/cookies-option";
+import { tokenTypes } from "../config/token";
+import ApiError from "../utils/api-error";
+
+/**
+ * Controllers for user registration and login.
+ * Handles user registration, login with email and password,
+ * and validation of incoming refresh tokens.
+ */
 
 const register = catchAsync(async (req: Request, res: Response) => {
   const { firstName, lastName, email } = req.body;
@@ -81,7 +89,7 @@ const loginUserWithEmailAndPassword = catchAsync(
 
     const cookieOptions = getCookieOptions(refreshExpires);
 
-    res.cookie("refresh-tk", refreshToken, cookieOptions);
+    res.cookie("refreshTk", refreshToken, cookieOptions);
 
     res.status(httpStatus.OK).send({
       status: "success",
@@ -96,14 +104,46 @@ const loginUserWithEmailAndPassword = catchAsync(
   }
 );
 
-const validateIncommingRefreshToken = catchAsync(
-  async (req: Request, res: Response) => {
-    // working on this 
+const handleRefreshToken = catchAsync(async (req: Request, res: Response) => {
+  const refreshTk = req.cookies.refreshTk || req.body.refreshTk; // Check for refresh token in cookies (web apps) or body (mobile apps)
+  if (!refreshTk) {
+    res.status(httpStatus.UNAUTHORIZED).send({
+      status: "error",
+      message: "Refresh token is missing.",
+    });
   }
-);
 
-export {
-  register,
-  loginUserWithEmailAndPassword,
-  validateIncommingRefreshToken,
-};
+  const token = await tokenService.validateStoredToken(
+    refreshTk,
+    tokenTypes.REFRESH
+  );
+
+  if (token.expires < new Date()) {
+    const cookieOptions = getCookieOptions();
+    res.cookie("refreshTk", "", cookieOptions);
+
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Refresh token has expired.");
+  }
+
+  const user = await userService.getUserById(token.userId);
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
+  }
+
+  const { token: accessToken, expires } = await tokenService.generateAuthTokens(
+    user.id,
+    token.organizationId || user.organizations[0].organization.id
+  );
+
+  res.status(httpStatus.OK).send({
+    status: "success",
+    message: "Refresh token is valid.",
+    data: {
+      user: pick(user, ["id", "email", "firstName", "lastName"]),
+      token: accessToken,
+      expires,
+    },
+  });
+});
+
+export { register, loginUserWithEmailAndPassword, handleRefreshToken };
