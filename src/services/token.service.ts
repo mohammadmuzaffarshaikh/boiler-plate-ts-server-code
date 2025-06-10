@@ -149,6 +149,36 @@ export const generateRefreshTokens = async (userId: string, orgId: string) => {
   };
 };
 
+export const generateResetPasswordToken = async (
+  userId: string,
+  orgId: string
+) => {
+  const resetPasswordTokenExpires = moment().add(
+    config.jwt.resetPasswordExpirationMinutes,
+    "minutes"
+  );
+
+  const resetPasswordToken = generateToken(
+    userId,
+    orgId,
+    resetPasswordTokenExpires,
+    tokenTypes.RESET_PASSWORD
+  );
+
+  await saveToken(
+    userId,
+    resetPasswordToken,
+    resetPasswordTokenExpires.toDate(),
+    tokenTypes.RESET_PASSWORD,
+    orgId
+  );
+
+  return {
+    resetPasswordToken,
+    expires: resetPasswordTokenExpires.toDate(),
+  };
+};
+
 /**
  * Validate stored tokens, don't use this function for access or MFA tokens
  * @param token - The token
@@ -179,13 +209,35 @@ export const validateStoredToken = async (token: string, type: TokenTypes) => {
 };
 
 /**
- * Delete expired tokens from the database
+ * Delete all tokens related to user and type
+ * @param userId - The user ID
+ * @param type - The token type (e.g. "REFRESH", "RESET_PASSWORD")
+ * @param organizationId - The organization ID (optional)
  * @returns void
  */
-export const deleteExpiredTokens = async () => {
+export const deleteTokens = async (
+  userId: string,
+  type: TokenTypes,
+  organizationId?: string
+) => {
   await prisma.token.deleteMany({
     where: {
-      expires: { lt: new Date() },
+      userId,
+      type,
+      ...(organizationId && { organizationId }),
+    },
+  });
+};
+
+/**
+ * Delete one token related to user and type
+ * @param id - The token ID to delete
+ * @returns void
+ */
+export const deleteToken = async (id: string) => {
+  await prisma.token.delete({
+    where: {
+      id,
     },
   });
 };

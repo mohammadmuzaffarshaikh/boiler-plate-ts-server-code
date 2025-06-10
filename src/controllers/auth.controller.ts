@@ -13,11 +13,14 @@ import logger from "../config/logger";
 import { getCookieOptions } from "../config/cookies-option";
 import { tokenTypes } from "../config/token";
 import ApiError from "../utils/api-error";
+import config from "../config/config";
 
 /**
  * Controllers for user registration and login.
  * Handles user registration, login with email and password,
  * and validation of incoming refresh tokens.
+ * Also includes a method for sending a password reset link.
+ * Handles password reset functionality.
  */
 
 const register = catchAsync(async (req: Request, res: Response) => {
@@ -104,6 +107,62 @@ const loginUserWithEmailAndPassword = catchAsync(
   }
 );
 
+const forgotPassword = catchAsync(async (req: Request, res: Response) => {
+  const user = await userService.getUserByEmail(req.body.email);
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
+  }
+
+  const { resetPasswordToken, expires } =
+    await tokenService.generateResetPasswordToken(
+      user.id,
+      user.organizations[0].organization.id
+    );
+
+  const resetPasswordLink = `${config.siteUrl}/reset-password?token=${resetPasswordToken}`;
+
+  // Here you would typically send an email to the user with the reset password link or use rabitmq to send the email asynchronously with a worker
+  // For demonstration, we will send in response
+
+  res.status(httpStatus.OK).send({
+    status: "success",
+    message: `Password reset link sent to your email if the user exists. Link will expire in ${expires.getHours()} hours.`,
+    data: {
+      resetPasswordLink,
+      expires,
+    },
+  });
+});
+
+const resetPassword = catchAsync(async (req: Request, res: Response) => {
+  const { token } = req.query;
+  const { password } = req.body;
+
+  const resetToken = await tokenService.validateStoredToken(
+    token?.toString() || "",
+    tokenTypes.RESET_PASSWORD
+  );
+
+  if (resetToken.expires < new Date()) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Reset token has expired.");
+  }
+
+  const user = await userService.getUserById(resetToken.userId);
+  if (!user) {
+    throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
+  }
+
+  await userService.updateUserById(user.id, { password });
+
+  // Optionally delete the reset token after use
+  await tokenService.deleteTokens(user.id, tokenTypes.RESET_PASSWORD);
+
+  res.status(httpStatus.OK).send({
+    status: "success",
+    message: "Password has been reset successfully.",
+  });
+});
+
 const handleRefreshToken = catchAsync(async (req: Request, res: Response) => {
   const refreshTk = req.cookies.refreshTk || req.body.refreshTk; // Check for refresh token in cookies (web apps) or body (mobile apps)
   if (!refreshTk) {
@@ -146,4 +205,36 @@ const handleRefreshToken = catchAsync(async (req: Request, res: Response) => {
   });
 });
 
-export { register, loginUserWithEmailAndPassword, handleRefreshToken };
+const logout = catchAsync(async (req: Request, res: Response) => {
+  const refreshTk = req.cookies.refreshTk || req.body.refreshTk; // Check for refresh token in cookies (web apps) or body (mobile apps)
+  if (!refreshTk) {
+    res.status(httpStatus.UNAUTHORIZED).send({
+      status: "error",
+      message: "Refresh token is missing.",
+    });
+  }
+
+  const token = await tokenService.validateStoredToken(
+    refreshTk,
+    tokenTypes.REFRESH
+  );
+
+  await tokenService.deleteToken(token.id);
+
+  const cookieOptions = getCookieOptions();
+  res.cookie("refreshTk", "", cookieOptions);
+
+  res.status(httpStatus.OK).send({
+    status: "success",
+    message: "Logged out successfully.",
+  });
+});
+
+export {
+  register,
+  loginUserWithEmailAndPassword,
+  forgotPassword,
+  resetPassword,
+  handleRefreshToken,
+  logout,
+};

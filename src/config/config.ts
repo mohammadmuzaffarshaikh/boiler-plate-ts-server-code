@@ -15,7 +15,6 @@ interface JwtConfig {
   accessExpirationMinutes: number;
   refreshExpirationMinutes: number;
   resetPasswordExpirationMinutes: number;
-  verifyEmailExpirationMinutes: number;
   userInviteExpirationMinutes: number;
 }
 
@@ -35,6 +34,10 @@ interface AwsConfig {
   s3Bucket: string;
   region: string;
 }
+
+interface CRON {
+  tokenCleanup: string; // Add more as needed
+}
 interface Config {
   env: string;
   port: number;
@@ -44,6 +47,7 @@ interface Config {
   socialLogin: SocialLoginConfig;
   reCaptcha: ReCaptchaConfig;
   aws: AwsConfig;
+  cron: CRON;
 }
 
 // Joi schema for environment variables
@@ -55,16 +59,16 @@ const envVarsSchema = Joi.object({
   JWT_SECRET: Joi.string().required().description("JWT secret key"),
   JWT_ACCESS_EXPIRATION_MINUTES: Joi.number()
     .default(30)
-    .description("minutes after which access tokens expire"),
+    .description("minutes after which access tokens expire")
+    .required(),
   JWT_REFRESH_EXPIRATION_MINUTES: Joi.number()
     .default(1770)
-    .description("minutes after which refresh token expire"),
+    .description("minutes after which refresh token expire")
+    .required(),
   JWT_RESET_PASSWORD_EXPIRATION_MINUTES: Joi.number()
     .default(10)
-    .description("minutes after which reset password token expires"),
-  JWT_VERIFY_EMAIL_EXPIRATION_MINUTES: Joi.number()
-    .default(10)
-    .description("minutes after which verify email token expires"),
+    .description("minutes after which reset password token expires")
+    .required(),
 
   GOOGLE_CLIENT_ID: Joi.string().description(
     "Google Client ID for social login"
@@ -76,6 +80,10 @@ const envVarsSchema = Joi.object({
   AWS_SECRET_ACCESS_KEY: Joi.string().description("Aws secret access key"),
   AWS_S3_BUCKET: Joi.string().description("Aws S3 bucket name"),
   AWS_REGION: Joi.string().description("Aws region"),
+
+  CLEANUP_TOKENS_CRON: Joi.string()
+    .description("CRON expression for token cleanup job")
+    .default("0 0 * * *"),
 }).unknown();
 
 // Validate environment variables
@@ -101,7 +109,6 @@ const config: Config = {
     refreshExpirationMinutes: envVars.JWT_REFRESH_EXPIRATION_MINUTES,
     resetPasswordExpirationMinutes:
       envVars.JWT_RESET_PASSWORD_EXPIRATION_MINUTES,
-    verifyEmailExpirationMinutes: envVars.JWT_VERIFY_EMAIL_EXPIRATION_MINUTES,
     userInviteExpirationMinutes: envVars.JWT_INVITE_USER_EXPIRATION_MINUTES,
   },
   socialLogin: {
@@ -118,6 +125,9 @@ const config: Config = {
     s3Bucket: envVars.AWS_S3_BUCKET,
     region: envVars.AWS_REGION,
   },
+  cron: {
+    tokenCleanup: envVars.CLEANUP_TOKENS_CRON,
+  }
 };
 
 export default config;

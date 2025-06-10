@@ -3,6 +3,7 @@ import config from "./config/config";
 import logger from "./config/logger";
 import { Server } from "http";
 import { prisma } from "./utils/prisma-client";
+import registerCronJobs from "./jobs";
 
 let server: Server | undefined;
 
@@ -16,6 +17,10 @@ async function startServer() {
       `Connected to PostgreSQL (via Prisma) => ${config.database.url}`
     );
 
+    // Register cron jobs
+    registerCronJobs();
+    logger.info("Cron jobs registered successfully.");
+
     server = app.listen(config.port, () => {
       logger.info(`Node server listening on port => ${config.port}`);
     });
@@ -26,7 +31,10 @@ async function startServer() {
 }
 
 // Start the app
-startServer();
+startServer().catch((error) => {
+  logger.error("Failed to start server", error);
+  process.exit(1);
+});
 
 const exitHandler = async () => {
   if (server) {
@@ -35,7 +43,7 @@ const exitHandler = async () => {
 
       // Gracefully disconnect Prisma
       await prisma.$disconnect();
-      process.exit(1);
+      process.exit(0);
     });
   } else {
     process.exit(1);
@@ -60,3 +68,6 @@ process.on("SIGTERM", async () => {
     });
   }
 });
+
+process.on("SIGINT", exitHandler); // triggered by Ctrl+C
+process.on("exit", exitHandler); // triggered by process.exit()

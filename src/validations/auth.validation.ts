@@ -49,7 +49,7 @@ const socialLogin: ValidationSchema = {
 // Validation schema for logging out
 const logout: ValidationSchema = {
   body: Joi.object().keys({
-    token: Joi.string().required(),
+    refreshTk: Joi.string().optional().allow(""),
   }),
 };
 

@@ -19,11 +19,32 @@ router.post(
   authController.loginUserWithEmailAndPassword
 );
 
+// Forgot password route
+router.post(
+  "/forgot-password",
+  validate(authValidation.forgotPassword),
+  authController.forgotPassword
+);
+
+// Reset password route
+router.post(
+  "/reset-password",
+  validate(authValidation.resetPassword),
+  authController.resetPassword
+);
+
 // Refresh token route
 router.post(
   "/refresh",
   validate(authValidation.refreshToken),
   authController.handleRefreshToken
+);
+
+// Logout route
+router.post(
+  "/logout",
+  validate(authValidation.logout),
+  authController.logout
 );
 
 export default router;
