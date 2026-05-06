@@ -1,21 +1,31 @@
+import { CookieOptions } from "express";
 import config from "./config";
 
-export function getCookieOptions(expiresAt?: Date): Record<string, any> {
-  const now = Date.now();
-  const defaultExpiry = new Date(now + 2 * 24 * 60 * 60 * 1000); // 2 days from now
-  const expiryDate = expiresAt ?? defaultExpiry;
+export type CookieKind = "access" | "refresh";
 
-  const cookieOptions: Record<string, any> = {
+export const COOKIE_NAMES = {
+  access: "token",
+  refresh: "refreshToken",
+} as const satisfies Record<CookieKind, string>;
+
+export function getCookieOptions(expiresAt?: Date): CookieOptions {
+  const now = Date.now();
+  const isProduction = config.ENV === "production";
+
+  const options: CookieOptions = {
     httpOnly: true,
-    secure: config.env === "production",
-    maxAge: Math.max(0, expiryDate.getTime() - now), // in ms
+    path: "/",
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
   };
 
-  if (config.env === "production") {
-    cookieOptions.sameSite = "None";
-  } else {
-    cookieOptions.domain = "localhost";
+  if (expiresAt) {
+    options.maxAge = Math.max(0, expiresAt.getTime() - now);
   }
 
-  return cookieOptions;
+  if (isProduction && config.COOKIE.DOMAIN) {
+    options.domain = config.COOKIE.DOMAIN;
+  }
+
+  return options;
 }

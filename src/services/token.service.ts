@@ -2,242 +2,99 @@ import httpStatus from "http-status";
 import jwt from "jsonwebtoken";
 import moment from "moment";
 import config from "../config/config";
-import { tokenTypes } from "../config/token";
+import { tokenTypes, TokenType, Role } from "../config/constants";
 import { prisma } from "../utils/prisma-client";
 import ApiError from "../utils/api-error";
-import { TokenTypes } from "@prisma/client/default";
+import { TokenTypes } from "@prisma/client";
 
-// JWT payload shape
-interface TokenPayload {
-  sub: string; // user ID
-  org: string;
-  iat: number; // issued at (unix)
-  exp: number; // expires at (unix)
-  type: string; // token type (e.g. ACCESS)
+export interface TokenPayload {
+  sub: string;
+  role?: Role;
+  iat: number;
+  exp: number;
+  type: TokenType;
 }
 
-/**
- * Generate a JWT token
- * @param userId - The user ID to encode as `sub`
- * @param orgId - The organization ID to encode as `org`
- * @param expires - Expiry moment object (defaults to 1 hour from now)
- * @param type - Token type (e.g. "ACCESS", "REFRESH")
- * @param secret - Secret key (default = config.jwt.secret)
- * @returns Signed JWT string
- */
-export const generateToken = (
+const sign = (
   userId: string,
-  orgId: string,
-  expires: moment.Moment = moment().add(1, "hour"),
-  type: string,
-  secret: string = config.jwt.secret
+  expires: moment.Moment,
+  type: TokenType,
+  extra: { role?: Role } = {},
+  secret: string = config.JWT.SECRET
 ): string => {
   const payload: TokenPayload = {
     sub: userId,
-    org: orgId,
     iat: moment().unix(),
     exp: expires.unix(),
     type,
+    ...extra,
   };
-
   return jwt.sign(payload, secret);
 };
 
-/**
- * Save a token to db
- * @param userId - The user ID to encode as `sub`
- * @param orgId - The organization ID to encode as `org`
- * @param expires - Expiry date
- * @param type - Token type (e.g. "REFRESH", "RESET_PASSWORD")
- * @param token - token to store
- * @returns void
- */
-export const saveToken = async (
-  userId: string,
-  token: string,
-  expires: Date,
-  type: TokenTypes,
-  orgId?: string
-) => {
+export const generateAccessToken = (userId: string, role: Role) => {
+  const expires = moment().add(
+    config.JWT.ACCESS_EXPIRATION_MINUTES,
+    "minutes"
+  );
+  const token = sign(userId, expires, tokenTypes.ACCESS, { role });
+  return { token, expires: expires.toDate() };
+};
+
+export const generateRefreshToken = (userId: string) => {
+  const expires = moment().add(
+    config.JWT.REFRESH_EXPIRATION_MINUTES,
+    "minutes"
+  );
+  const token = sign(userId, expires, tokenTypes.REFRESH);
+  return { token, expires: expires.toDate() };
+};
+
+export const generateResetPasswordToken = async (userId: string) => {
+  const expires = moment().add(
+    config.JWT.RESET_PASSWORD_EXPIRATION_MINUTES,
+    "minutes"
+  );
+  const token = sign(userId, expires, tokenTypes.RESET_PASSWORD);
+
   await prisma.token.create({
     data: {
       token,
-      expires,
-      type,
+      expires: expires.toDate(),
+      type: tokenTypes.RESET_PASSWORD,
       user: { connect: { id: userId } },
-      ...(orgId && { organization: { connect: { id: orgId } } }),
     },
   });
+
+  return { resetPasswordToken: token, expires: expires.toDate() };
 };
 
-/**
- * Fetch all tokens from db related to user or type or organization
- * @param userId - The user ID to encode as `sub`
- * @param organizationId - The organization ID to encode as `org`
- * @param type - Token type (e.g. "REFRESH", "RESET_PASSWORD")
- * @returns Array of all tokens from db related to user and type
- */
-export const getTokens = async (
-  userId?: string,
-  type?: TokenTypes,
-  organizationId?: string
-) => {
-  return prisma.token.findMany({
-    where: {
-      ...(userId && { userId }),
-      ...(type && { type }),
-      ...(organizationId && { organizationId }),
-    },
-  });
-};
-
-/**
- * Generate an access token and its expiry time
- * @param userId - The user ID
- * @param orgId - The organization ID
- * @returns Access token and expiry date
- */
-export const generateAuthTokens = async (userId: string, orgId: string) => {
-  const accessTokenExpires = moment().add(
-    config.jwt.accessExpirationMinutes,
-    "minutes"
-  );
-
-  const accessToken = generateToken(
-    userId,
-    orgId,
-    accessTokenExpires,
-    tokenTypes.ACCESS
-  );
-
-  return {
-    token: accessToken,
-    expires: accessTokenExpires.toDate(),
-  };
-};
-
-/**
- * Generate an refresh token and its expiry time
- * @param userId - The user ID
- * @param orgId - The organization ID
- * @returns Refresh token and expiry date
- */
-export const generateRefreshTokens = async (userId: string, orgId: string) => {
-  const refreshTokenExpires = moment().add(
-    config.jwt.refreshExpirationMinutes,
-    "minutes"
-  );
-
-  const refreshToken = generateToken(
-    userId,
-    orgId,
-    refreshTokenExpires,
-    tokenTypes.REFRESH
-  );
-
-  await saveToken(
-    userId,
-    refreshToken,
-    refreshTokenExpires.toDate(),
-    tokenTypes.REFRESH,
-    orgId
-  );
-
-  return {
-    refreshToken,
-    refreshExpires: refreshTokenExpires.toDate(),
-  };
-};
-
-export const generateResetPasswordToken = async (
-  userId: string,
-  orgId: string
-) => {
-  const resetPasswordTokenExpires = moment().add(
-    config.jwt.resetPasswordExpirationMinutes,
-    "minutes"
-  );
-
-  const resetPasswordToken = generateToken(
-    userId,
-    orgId,
-    resetPasswordTokenExpires,
-    tokenTypes.RESET_PASSWORD
-  );
-
-  await saveToken(
-    userId,
-    resetPasswordToken,
-    resetPasswordTokenExpires.toDate(),
-    tokenTypes.RESET_PASSWORD,
-    orgId
-  );
-
-  return {
-    resetPasswordToken,
-    expires: resetPasswordTokenExpires.toDate(),
-  };
-};
-
-/**
- * Validate stored tokens, don't use this function for access or MFA tokens
- * @param token - The token
- * @param type - The token type
- * @returns token if valid, otherwise throws an error
- */
-export const validateStoredToken = async (token: string, type: TokenTypes) => {
-  let payload: TokenPayload;
-
+export const verifyJwt = (token: string): TokenPayload => {
   try {
-    payload = jwt.verify(token, config.jwt.secret) as TokenPayload;
+    return jwt.verify(token, config.JWT.SECRET) as TokenPayload;
   } catch {
     throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid or expired token.");
   }
+};
 
-  const tokens = await getTokens(
-    payload.sub.toString(),
-    type,
-    payload.org?.toString()
-  );
+export const validateStoredToken = async (token: string, type: TokenTypes) => {
+  const payload = verifyJwt(token);
 
-  const matchedToken = tokens.find((tk) => tk.token === token);
-  if (!matchedToken) {
+  const stored = await prisma.token.findFirst({
+    where: { token, type, userId: payload.sub.toString() },
+  });
+
+  if (!stored) {
     throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid or expired token.");
   }
 
-  return matchedToken;
+  return stored;
 };
 
-/**
- * Delete all tokens related to user and type
- * @param userId - The user ID
- * @param type - The token type (e.g. "REFRESH", "RESET_PASSWORD")
- * @param organizationId - The organization ID (optional)
- * @returns void
- */
-export const deleteTokens = async (
-  userId: string,
-  type: TokenTypes,
-  organizationId?: string
-) => {
-  await prisma.token.deleteMany({
-    where: {
-      userId,
-      type,
-      ...(organizationId && { organizationId }),
-    },
-  });
+export const deleteTokens = async (userId: string, type: TokenTypes) => {
+  await prisma.token.deleteMany({ where: { userId, type } });
 };
 
-/**
- * Delete one token related to user and type
- * @param id - The token ID to delete
- * @returns void
- */
 export const deleteToken = async (id: string) => {
-  await prisma.token.delete({
-    where: {
-      id,
-    },
-  });
+  await prisma.token.delete({ where: { id } });
 };

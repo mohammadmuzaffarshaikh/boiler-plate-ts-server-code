@@ -9,10 +9,6 @@
     "strict": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "baseUrl": ".",
-    "paths": {
-      "*": ["node_modules/*"]
-    },
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,

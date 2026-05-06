@@ -1,5 +1,6 @@
 import Joi, { ObjectSchema } from "joi";
 import { password, objectId } from "./custom.validation";
+import { roles } from "../config/constants";
 
 // Define the interface for validation schemas
 interface ValidationSchema {
@@ -15,7 +16,7 @@ const createUser: ValidationSchema = {
     password: Joi.string().required().custom(password),
     firstName: Joi.string().required(),
     lastName: Joi.string().required(),
-    role: Joi.string().required().valid("user", "admin"),
+    role: Joi.string().required().valid(...roles),
   }),
 };
 
@@ -24,7 +25,7 @@ const inviteUser: ValidationSchema = {
     email: Joi.string().required().email(),
     firstName: Joi.string().required(),
     lastName: Joi.string().required(),
-    role: Joi.string().valid("admin", "user", "manager"),
+    role: Joi.string().valid(...roles),
   }),
 };
 
@@ -81,19 +82,7 @@ const updateUserRole: ValidationSchema = {
   }),
   body: Joi.object()
     .keys({
-      role: Joi.string().required().valid("admin", "manager", "user"),
-    })
-    .min(1),
-};
-
-const updateOrg: ValidationSchema = {
-  params: Joi.object({
-    orgId: Joi.required().custom(objectId),
-  }),
-  body: Joi.object()
-    .keys({
-      email: Joi.string().email(),
-      name: Joi.string(),
+      role: Joi.string().required().valid(...roles),
     })
     .min(1),
 };
@@ -109,7 +98,6 @@ export default {
   getUsers,
   getUser,
   updateUser,
-  updateOrg,
   deleteUser,
   inviteUser,
   activateUser,

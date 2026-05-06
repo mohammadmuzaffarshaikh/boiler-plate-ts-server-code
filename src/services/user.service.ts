@@ -22,34 +22,13 @@ export const createUser = async (userBody: User): Promise<User> => {
 };
 
 export const getUserById = async (id: string) => {
-  return prisma.user.findUnique({
-    where: { id },
-    include: {
-      organizations: {
-        where: { isPrimary: true },
-        include: {
-          organization: true,
-        },
-      },
-    },
-  });
+  return prisma.user.findUnique({ where: { id } });
 };
 
 export const getUserByEmail = async (email: string) => {
-  return await prisma.user.findUnique({
-    where: { email },
-    include: {
-      organizations: {
-        where: { isPrimary: true },
-        include: {
-          organization: true,
-        },
-      },
-    },
-  });
+  return prisma.user.findUnique({ where: { email } });
 };
 
-/** Update user by id */
 export const updateUserById = async (
   userId: string,
   updateBody: Partial<User>
@@ -74,7 +53,6 @@ export const updateUserById = async (
   });
 };
 
-/** Delete user by id */
 export const deleteUserById = async (userId: string): Promise<User> => {
-  return await prisma.user.delete({ where: { id: userId } });
+  return prisma.user.delete({ where: { id: userId } });
 };

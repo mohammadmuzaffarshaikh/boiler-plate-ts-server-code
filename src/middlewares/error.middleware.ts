@@ -28,11 +28,11 @@ const errorHandler = (
   err: ApiError,
   req: Request,
   res: Response,
-  next: NextFunction
+  _next: NextFunction
 ): void => {
   let { statusCode, message } = err;
 
-  if (config.env === "production" && !err.isOperational) {
+  if (config.ENV === "production" && !err.isOperational) {
     statusCode = httpStatus.INTERNAL_SERVER_ERROR;
     message = httpStatus[httpStatus.INTERNAL_SERVER_ERROR];
   }
@@ -42,10 +42,10 @@ const errorHandler = (
   const response = {
     code: statusCode,
     message,
-    ...(config.env === "development" && { stack: err.stack }),
+    ...(config.ENV === "development" && { stack: err.stack }),
   };
 
-  if (config.env === "development") {
+  if (config.ENV === "development") {
     logger.error(err);
   }
 

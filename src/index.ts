@@ -7,22 +7,20 @@ import registerCronJobs from "./jobs";
 
 let server: Server | undefined;
 
-logger.info(`Node Environment => ${config.env}`);
+logger.info(`Node Environment => ${config.ENV}`);
 
 async function startServer() {
   try {
-    // Try connecting to the DB using Prisma
     await prisma.$connect();
     logger.info(
-      `Connected to PostgreSQL (via Prisma) => ${config.database.url}`
+      `Connected to PostgreSQL (via Prisma) => ${config.DATABASE.URL}`
     );
 
-    // Register cron jobs
     registerCronJobs();
     logger.info("Cron jobs registered successfully.");
 
-    server = app.listen(config.port, () => {
-      logger.info(`Node server listening on port => ${config.port}`);
+    server = app.listen(config.PORT, () => {
+      logger.info(`Node server listening on port => ${config.PORT}`);
     });
   } catch (error) {
     logger.error("Failed to connect to database", error);

@@ -4,100 +4,67 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
-enum OrgUserRole {
-  OWNER
+enum Role {
+  USER
   ADMIN
-  MEMBER
-  VIEWER
-}
-
-enum OrgUserStatus {
-  ACTIVE
-  INVITED
-  INACTIVE
-}
-
-enum OrganizationStatus {
-  ACTIVE
-  INACTIVE
 }
 
 enum TokenTypes {
-  REFRESH
   RESET_PASSWORD
-  INVITE_USER
-  MFA
 }
 
-// ---------- MODELS ----------
-
 model User {
-  id           String  @id @default(uuid())
-  email        String  @unique
-  password     String
-  firstName    String?
-  lastName     String?
-  isMfaEnabled Boolean @default(false)
+  id        String  @id @default(uuid())
+  email     String  @unique
+  password  String
+  firstName String? @map("first_name")
+  lastName  String? @map("last_name")
+  role      Role    @default(USER)
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  loginAttempts Int       @default(0) @map("login_attempts")
+  lockUntil     DateTime? @map("lock_until")
 
-  organizations UserOrganization[]
-  Token         Token[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  Token   Token[]
+  Session Session[]
 
   @@map("users")
 }
 
-model Organization {
-  id         String             @id @default(uuid())
-  name       String
-  email      String?            @unique
-  phone      String?
-  colorTheme String?            @default("zinc") // UI theme
-  status     OrganizationStatus @default(ACTIVE)
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime           @updatedAt
-
-  users UserOrganization[]
-  Token Token[]
-
-  @@map("organizations")
-}
-
-model UserOrganization {
-  userId         String
-  organizationId String
-
-  role      OrgUserRole   @default(MEMBER)
-  status    OrgUserStatus @default(ACTIVE)
-  isPrimary Boolean       @default(false)
-  joinedAt  DateTime      @default(now())
-
-  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@id([userId, organizationId])
-  @@map("user_organizations")
-}
-
 model Token {
-  id     String @id @default(uuid())
-  userId String
-
+  id        String     @id @default(uuid())
+  userId    String     @map("user_id")
   token     String
   type      TokenTypes
   expires   DateTime
-  createdAt DateTime   @default(now())
-  revokedAt DateTime?
-
-  // 👇 Optional org link, only for INVITE_USER
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now()) @map("created_at")
+  revokedAt DateTime?  @map("revoked_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("tokens")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  refreshToken String   @unique         @map("refresh_token")
+  ipAddress    String?                  @map("ip_address")
+  userAgent    String?                  @map("user_agent")
+  deviceInfo   Json?                    @map("device_info")
+  isActive     Boolean  @default(true)  @map("is_active")
+  lastActivity DateTime @default(now()) @map("last_activity")
+  expiresAt    DateTime                 @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt      @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }

@@ -11,7 +11,7 @@ morgan.token(
 
 // Function to determine the IP format based on environment
 const getIpFormat = (): string =>
-  config.env === "production" ? ":remote-addr - " : "";
+  config.ENV === "production" ? ":remote-addr - " : "";
 
 // Define the success and error response formats
 const successResponseFormat = `${getIpFormat()}:method :url :status - :response-time ms`;

@@ -1,19 +1,15 @@
 import passport from "passport";
 import httpStatus from "http-status";
 import ApiError from "../utils/api-error";
-// import { authService } from "../services";
 import { Request, Response, NextFunction } from "express";
-import { roleRights } from "../config/role-rights";
+import { roleRights, Role } from "../config/constants";
 
-// Extend Express Request to include user info
 interface AuthRequest extends Request {
-  user?: any; // Should ideally match your Prisma User type
-  _user?: string; // User ID (UUID string)
-  _org?: string;
-  role?: string;
+  user?: any;
+  _user?: string;
+  role?: Role;
 }
 
-// Passport verification callback
 const verifyCallback =
   (
     req: AuthRequest,
@@ -28,20 +24,17 @@ const verifyCallback =
       );
     }
 
-    // Already checked org + user status in jwtVerify
-
     req.user = user;
     req._user = user.id;
-    req._org = user.orgId;
-    req.role = user.orgRole;
+    req.role = user.role;
 
     if (requiredRights.length) {
-      const rights = roleRights.get(user.orgRole); // use orgRole here
+      const rights = roleRights.get(user.role);
       if (!rights) {
         return reject(
           new ApiError(
             httpStatus.FORBIDDEN,
-            `Role rights for ${user.orgRole} are undefined.`
+            `Role rights for ${user.role} are undefined.`
           )
         );
       }
@@ -55,7 +48,6 @@ const verifyCallback =
     resolve();
   };
 
-// Middleware to authenticate using JWT
 const auth =
   (...requiredRights: string[]) =>
   async (req: AuthRequest, res: Response, next: NextFunction) => {
@@ -70,27 +62,7 @@ const auth =
       .catch((err) => next(err));
   };
 
-// Middleware for invited user token verification
-// const verifyInvitedUserToken =
-//   () => async (req: AuthRequest, res: Response, next: NextFunction) => {
-//     try {
-//       const token = req.headers.authorization?.split("Bearer ")[1];
-//       if (!token) {
-//         return next(
-//           new ApiError(httpStatus.UNAUTHORIZED, "Authorization token is missing")
-//         );
-//       }
-//       const user = await authService.verifyInvitedUser(token);
-//       req.user = user;
-//       req._user = user.id;
-//       next();
-//     } catch (error) {
-//       next(error);
-//     }
-//   };
-
-// Role check middleware
-const checkRole = (requiredRoles: string[]) => {
+const checkRole = (requiredRoles: Role[]) => {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.user || !requiredRoles.includes(req.user.role)) {
       return next(
@@ -101,9 +73,4 @@ const checkRole = (requiredRoles: string[]) => {
   };
 };
 
-export {
-  auth,
-  // verifyInvitedUserToken,
-  checkRole,
-  AuthRequest,
-};
+export { auth, checkRole, AuthRequest };

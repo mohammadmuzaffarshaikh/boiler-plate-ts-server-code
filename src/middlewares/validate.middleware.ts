@@ -1,5 +1,4 @@
 import Joi from "joi";
-import httpStatus from "http-status";
 import { Request, Response, NextFunction } from "express";
 import pick from "../utils/pick";
 import ApiError from "../utils/api-error";

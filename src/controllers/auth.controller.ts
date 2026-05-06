@@ -6,68 +6,58 @@ import {
   authService,
   userService,
   tokenService,
-  organizationService,
-  userOrganizationService,
+  sessionService,
 } from "../services";
-import logger from "../config/logger";
-import { getCookieOptions } from "../config/cookies-option";
-import { tokenTypes } from "../config/token";
+import {
+  getCookieOptions,
+  COOKIE_NAMES,
+} from "../config/cookies-option";
+import { tokenTypes } from "../config/constants";
 import ApiError from "../utils/api-error";
 import config from "../config/config";
 
-/**
- * Controllers for user registration and login.
- * Handles user registration, login with email and password,
- * and validation of incoming refresh tokens.
- * Also includes a method for sending a password reset link.
- * Handles password reset functionality.
- */
+const setAuthCookies = (
+  res: Response,
+  tokens: {
+    access: { token: string; expires: Date };
+    refresh: { token: string; expires: Date };
+  }
+) => {
+  res.cookie(
+    COOKIE_NAMES.access,
+    tokens.access.token,
+    getCookieOptions(tokens.access.expires)
+  );
+  res.cookie(
+    COOKIE_NAMES.refresh,
+    tokens.refresh.token,
+    getCookieOptions(tokens.refresh.expires)
+  );
+};
+
+const clearAuthCookies = (res: Response) => {
+  const options = getCookieOptions();
+  res.clearCookie(COOKIE_NAMES.access, options);
+  res.clearCookie(COOKIE_NAMES.refresh, options);
+};
 
 const register = catchAsync(async (req: Request, res: Response) => {
-  const { firstName, lastName, email } = req.body;
-  const organization = await organizationService.createOrganization({
-    name: `${firstName} ${lastName}'s Organization`,
-    email,
-    colorTheme: "zinc",
-    status: "ACTIVE",
-  });
-
-  let user;
-  try {
-    user = await userService.getUserByEmail(email);
-
-    if (!user) {
-      user = await userService.createUser(req.body);
-
-      await userOrganizationService.addUserOrganization({
-        userId: user.id,
-        organizationId: organization.id,
-        isPrimary: true,
-        status: "ACTIVE",
-        role: "OWNER",
-      });
-    } else {
-      await userOrganizationService.addUserOrganization({
-        userId: user.id,
-        organizationId: organization.id,
-        isPrimary: false,
-        status: "ACTIVE",
-        role: "OWNER",
-      });
-    }
-  } catch (error: any) {
-    await organizationService.deleteOrganization(organization.id);
-    logger.error(
-      `Something went wrong while registering user. Error: ${error.message}`
+  const existing = await userService.getUserByEmail(req.body.email);
+  if (existing) {
+    throw new ApiError(
+      httpStatus.BAD_REQUEST,
+      "User already exists with this email"
     );
   }
+
+  const user = await userService.createUser(req.body);
 
   res.status(httpStatus.CREATED).send({
     status: "success",
     message:
       "Your registration was successful. You may now log in to access the application.",
     data: {
-      user: pick(user, ["id", "email", "firstName", "lastName"]),
+      user: pick(user, ["id", "email", "firstName", "lastName", "role"]),
     },
   });
 });
@@ -79,29 +69,28 @@ const loginUserWithEmailAndPassword = catchAsync(
       req.body?.password
     );
 
-    const { token, expires } = await tokenService.generateAuthTokens(
-      user.id,
-      user?.organizations[0].organization.id
-    );
+    const access = tokenService.generateAccessToken(user.id, user.role);
+    const refresh = tokenService.generateRefreshToken(user.id);
 
-    const { refreshToken, refreshExpires } =
-      await tokenService.generateRefreshTokens(
-        user.id,
-        user?.organizations[0].organization.id
-      );
+    const ctx = sessionService.captureRequestContext(req);
+    await sessionService.createSession({
+      userId: user.id,
+      refreshToken: refresh.token,
+      expiresAt: refresh.expires,
+      ipAddress: ctx.ipAddress,
+      userAgent: ctx.userAgent,
+      deviceInfo: ctx.deviceInfo,
+    });
 
-    const cookieOptions = getCookieOptions(refreshExpires);
-
-    res.cookie("refreshTk", refreshToken, cookieOptions);
+    setAuthCookies(res, { access, refresh });
 
     res.status(httpStatus.OK).send({
       status: "success",
       message: "Login successful. Welcome back!",
       data: {
-        user: pick(user, ["id", "email", "firstName", "lastName"]),
-        token,
-        expires,
-        refreshToken, // For mobile applications
+        user: pick(user, ["id", "email", "firstName", "lastName", "role"]),
+        token: access.token,
+        expires: access.expires,
       },
     });
   }
@@ -114,15 +103,9 @@ const forgotPassword = catchAsync(async (req: Request, res: Response) => {
   }
 
   const { resetPasswordToken, expires } =
-    await tokenService.generateResetPasswordToken(
-      user.id,
-      user.organizations[0].organization.id
-    );
+    await tokenService.generateResetPasswordToken(user.id);
 
-  const resetPasswordLink = `${config.siteUrl}/reset-password?token=${resetPasswordToken}`;
-
-  // Here you would typically send an email to the user with the reset password link or use rabitmq to send the email asynchronously with a worker
-  // For demonstration, we will send in response
+  const resetPasswordLink = `${config.SITE_URL}/reset-password?token=${resetPasswordToken}`;
 
   res.status(httpStatus.OK).send({
     status: "success",
@@ -153,9 +136,8 @@ const resetPassword = catchAsync(async (req: Request, res: Response) => {
   }
 
   await userService.updateUserById(user.id, { password });
-
-  // Optionally delete the reset token after use
   await tokenService.deleteTokens(user.id, tokenTypes.RESET_PASSWORD);
+  await sessionService.revokeAllForUser(user.id);
 
   res.status(httpStatus.OK).send({
     status: "success",
@@ -164,69 +146,79 @@ const resetPassword = catchAsync(async (req: Request, res: Response) => {
 });
 
 const handleRefreshToken = catchAsync(async (req: Request, res: Response) => {
-  const refreshTk = req.cookies.refreshTk || req.body.refreshTk; // Check for refresh token in cookies (web apps) or body (mobile apps)
+  const refreshTk =
+    req.cookies?.[COOKIE_NAMES.refresh] || req.body?.refreshToken;
   if (!refreshTk) {
-    res.status(httpStatus.UNAUTHORIZED).send({
-      status: "error",
-      message: "Refresh token is missing.",
-    });
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Refresh token is missing.");
   }
 
-  const token = await tokenService.validateStoredToken(
-    refreshTk,
-    tokenTypes.REFRESH
-  );
-
-  if (token.expires < new Date()) {
-    const cookieOptions = getCookieOptions();
-    res.cookie("refreshTk", "", cookieOptions);
-
-    throw new ApiError(httpStatus.UNAUTHORIZED, "Refresh token has expired.");
+  const session = await sessionService.findActiveByRefreshToken(refreshTk);
+  if (!session || !session.isActive || session.expiresAt < new Date()) {
+    clearAuthCookies(res);
+    throw new ApiError(
+      httpStatus.UNAUTHORIZED,
+      "Session expired. Please log in again."
+    );
   }
 
-  const user = await userService.getUserById(token.userId);
+  const payload = tokenService.verifyJwt(refreshTk);
+  if (payload.type !== tokenTypes.REFRESH) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid token type.");
+  }
+
+  const user = await userService.getUserById(session.userId);
   if (!user) {
     throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
   }
 
-  const { token: accessToken, expires } = await tokenService.generateAuthTokens(
-    user.id,
-    token.organizationId || user.organizations[0].organization.id
+  const access = tokenService.generateAccessToken(user.id, user.role);
+  res.cookie(
+    COOKIE_NAMES.access,
+    access.token,
+    getCookieOptions(access.expires)
   );
+
+  await sessionService.touchLastActivity(session.id);
 
   res.status(httpStatus.OK).send({
     status: "success",
     message: "Refresh token is valid.",
     data: {
-      user: pick(user, ["id", "email", "firstName", "lastName"]),
-      token: accessToken,
-      expires,
+      user: pick(user, ["id", "email", "firstName", "lastName", "role"]),
+      token: access.token,
+      expires: access.expires,
     },
   });
 });
 
 const logout = catchAsync(async (req: Request, res: Response) => {
-  const refreshTk = req.cookies.refreshTk || req.body.refreshTk; // Check for refresh token in cookies (web apps) or body (mobile apps)
-  if (!refreshTk) {
-    res.status(httpStatus.UNAUTHORIZED).send({
-      status: "error",
-      message: "Refresh token is missing.",
-    });
+  const refreshTk =
+    req.cookies?.[COOKIE_NAMES.refresh] || req.body?.refreshToken;
+  if (refreshTk) {
+    await sessionService.revokeSession(refreshTk);
   }
-
-  const token = await tokenService.validateStoredToken(
-    refreshTk,
-    tokenTypes.REFRESH
-  );
-
-  await tokenService.deleteToken(token.id);
-
-  const cookieOptions = getCookieOptions();
-  res.cookie("refreshTk", "", cookieOptions);
+  clearAuthCookies(res);
 
   res.status(httpStatus.OK).send({
     status: "success",
     message: "Logged out successfully.",
+  });
+});
+
+const self = catchAsync(async (req: Request, res: Response) => {
+  const user = (req as Request & { user?: { id: string } }).user;
+  if (!user?.id) {
+    throw new ApiError(httpStatus.UNAUTHORIZED, "Please authenticate.");
+  }
+  const fresh = await userService.getUserById(user.id);
+  if (!fresh) {
+    throw new ApiError(httpStatus.NOT_FOUND, "User not found.");
+  }
+  res.status(httpStatus.OK).send({
+    status: "success",
+    data: {
+      user: pick(fresh, ["id", "email", "firstName", "lastName", "role"]),
+    },
   });
 });
 
@@ -237,4 +229,5 @@ export {
   resetPassword,
   handleRefreshToken,
   logout,
+  self,
 };

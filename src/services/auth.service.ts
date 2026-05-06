@@ -1,52 +1,68 @@
 import httpStatus from "http-status";
-import { OAuth2Client } from "google-auth-library";
+import { User } from "@prisma/client";
 import config from "../config/config";
 import ApiError from "../utils/api-error";
 import { compareHash } from "../utils/hash";
+import { prisma } from "../utils/prisma-client";
 import * as userService from "./user.service";
-import { User } from "@prisma/client";
+
+const minutesUntil = (date: Date) =>
+  Math.max(1, Math.ceil((date.getTime() - Date.now()) / 60000));
 
 export const loginUserWithEmailAndPassword = async (
   email: string,
   password: string
-) => {
+): Promise<User> => {
   const user = await userService.getUserByEmail(email);
 
-  const isValid = user && (await compareHash(password, user.password));
-
-  if (!isValid) {
+  if (!user) {
     throw new ApiError(
       httpStatus.UNAUTHORIZED,
       "The email or password you entered is incorrect. Please try again."
     );
   }
 
-  return user;
-};
-
-/**
- * Login with Google OAuth token
- * @param idToken - Google ID token
- * @returns Promise<User>
- */
-export const loginWithGoogle = async (idToken: string): Promise<User> => {
-  const oAuth2Client = new OAuth2Client(config.socialLogin.google.clientId);
-  const ticket = await oAuth2Client.verifyIdToken({
-    idToken,
-    audience: config.socialLogin.google.clientId,
-  });
-
-  const payload = ticket.getPayload();
-  const email = payload?.email;
-  const email_verified = payload?.email_verified;
-
-  if (!email || !email_verified) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, "Google authentication failed");
+  if (user.lockUntil && user.lockUntil > new Date()) {
+    throw new ApiError(
+      httpStatus.TOO_MANY_REQUESTS,
+      `Account is locked. Try again in ${minutesUntil(user.lockUntil)} minute(s).`
+    );
   }
 
-  const user = await userService.getUserByEmail(email);
-  if (!user) {
-    throw new ApiError(httpStatus.UNAUTHORIZED, "This user does not exist");
+  const isValid = await compareHash(password, user.password);
+
+  if (!isValid) {
+    const nextAttempts = user.loginAttempts + 1;
+    const shouldLock = nextAttempts >= config.AUTH.MAX_LOGIN_ATTEMPTS;
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        loginAttempts: nextAttempts,
+        lockUntil: shouldLock
+          ? new Date(Date.now() + config.AUTH.LOCK_TIME_MINUTES * 60 * 1000)
+          : user.lockUntil,
+      },
+    });
+
+    if (shouldLock) {
+      throw new ApiError(
+        httpStatus.TOO_MANY_REQUESTS,
+        `Too many failed attempts. Account locked for ${config.AUTH.LOCK_TIME_MINUTES} minutes.`
+      );
+    }
+
+    throw new ApiError(
+      httpStatus.UNAUTHORIZED,
+      "The email or password you entered is incorrect. Please try again."
+    );
+  }
+
+  if (user.loginAttempts > 0 || user.lockUntil) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { loginAttempts: 0, lockUntil: null },
+    });
   }
 
   return user;

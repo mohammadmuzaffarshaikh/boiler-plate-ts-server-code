@@ -11,11 +11,11 @@ const enumerateErrorFormat = winston.format((info) => {
 
 // Create the logger
 const logger: Logger = winston.createLogger({
-  level: config.env === "development" ? "debug" : "info",
+  level: config.ENV === "development" ? "debug" : "info",
   format: winston.format.combine(
     enumerateErrorFormat(),
     winston.format.timestamp({ format: "YYYY-MM-DD:hh:mm:ss:a" }),
-    config.env === "development"
+    config.ENV === "development"
       ? winston.format.colorize()
       : winston.format.uncolorize(),
     winston.format.splat(),

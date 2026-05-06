@@ -2,58 +2,62 @@ import dotenv from "dotenv";
 import path from "path";
 import Joi from "joi";
 
-// Load environment variables from .env file
 dotenv.config({ path: path.join(__dirname, "../../.env") });
 
-// Define the types for the configuration
 interface DatabaseConfig {
-  url: string;
+  URL: string;
 }
 
 interface JwtConfig {
-  secret: string;
-  accessExpirationMinutes: number;
-  refreshExpirationMinutes: number;
-  resetPasswordExpirationMinutes: number;
-  userInviteExpirationMinutes: number;
-}
-
-interface SocialLoginConfig {
-  google: {
-    clientId: string;
-  };
-}
-
-interface ReCaptchaConfig {
-  secret: string;
+  SECRET: string;
+  ACCESS_EXPIRATION_MINUTES: number;
+  REFRESH_EXPIRATION_MINUTES: number;
+  RESET_PASSWORD_EXPIRATION_MINUTES: number;
+  USER_INVITE_EXPIRATION_MINUTES: number;
 }
 
 interface AwsConfig {
-  accessKeyId: string;
-  secretAccessKey: string;
-  s3Bucket: string;
-  region: string;
+  ACCESS_KEY_ID?: string;
+  SECRET_ACCESS_KEY?: string;
+  S3_BUCKET?: string;
+  REGION?: string;
 }
 
-interface CRON {
-  tokenCleanup: string; // Add more as needed
+interface CronConfig {
+  TOKEN_CLEANUP: string;
+  SESSION_CLEANUP: string;
 }
+
+interface AuthConfig {
+  MAX_LOGIN_ATTEMPTS: number;
+  LOCK_TIME_MINUTES: number;
+}
+
+interface CookieConfig {
+  DOMAIN?: string;
+}
+
+interface CorsConfig {
+  ALLOWED_ORIGINS: string[];
+}
+
 interface Config {
-  env: string;
-  port: number;
-  siteUrl: string;
-  database: DatabaseConfig;
-  jwt: JwtConfig;
-  socialLogin: SocialLoginConfig;
-  reCaptcha: ReCaptchaConfig;
-  aws: AwsConfig;
-  cron: CRON;
+  ENV: string;
+  PORT: number;
+  SITE_URL?: string;
+  DATABASE: DatabaseConfig;
+  JWT: JwtConfig;
+  AWS: AwsConfig;
+  CRON: CronConfig;
+  AUTH: AuthConfig;
+  COOKIE: CookieConfig;
+  CORS: CorsConfig;
 }
 
-// Joi schema for environment variables
 const envVarsSchema = Joi.object({
   NODE_ENV: Joi.string().valid("production", "development", "test").required(),
-  PORT: Joi.number().default(3000),
+  PORT: Joi.number().default(8080),
+  SITE_URL: Joi.string().description("Public site URL"),
   DATABASE_URL: Joi.string().required().description("DB url"),
 
   JWT_SECRET: Joi.string().required().description("JWT secret key"),
@@ -69,13 +73,10 @@ const envVarsSchema = Joi.object({
     .default(10)
     .description("minutes after which reset password token expires")
     .required(),
+  JWT_INVITE_USER_EXPIRATION_MINUTES: Joi.number()
+    .default(60 * 24 * 7)
+    .description("minutes after which invite user token expires"),
 
-  GOOGLE_CLIENT_ID: Joi.string().description(
-    "Google Client ID for social login"
-  ),
-  GOOGLE_RECAPTCHA_SECRET: Joi.string().description(
-    "Google reCAPTCHA secret key"
-  ),
   AWS_ACCESS_KEY_ID: Joi.string().description("Aws access key"),
   AWS_SECRET_ACCESS_KEY: Joi.string().description("Aws secret access key"),
   AWS_S3_BUCKET: Joi.string().description("Aws S3 bucket name"),
@@ -84,9 +85,26 @@ const envVarsSchema = Joi.object({
   CLEANUP_TOKENS_CRON: Joi.string()
     .description("CRON expression for token cleanup job")
     .default("0 0 * * *"),
+  CLEANUP_SESSIONS_CRON: Joi.string()
+    .description("CRON expression for session cleanup job")
+    .default("0 2 * * *"),
+
+  MAX_LOGIN_ATTEMPTS: Joi.number()
+    .default(10)
+    .description("Failed login attempts before account is locked"),
+  ACCOUNT_LOCK_TIME_MINUTES: Joi.number()
+    .default(15)
+    .description("Minutes to lock the account after exceeding attempts"),
+
+  COOKIE_DOMAIN: Joi.string().description(
+    "Optional cookie domain (e.g. .example.com) for production cross-subdomain cookies"
+  ),
+
+  ALLOWED_ORIGINS: Joi.string()
+    .default("")
+    .description("Comma-separated list of allowed CORS origins"),
 }).unknown();
 
-// Validate environment variables
 const { value: envVars, error } = envVarsSchema
   .prefs({ errors: { label: "key" } })
   .validate(process.env);
@@ -95,39 +113,45 @@ if (error) {
   throw new Error(`Config validation error: ${error.message}`);
 }
 
-// Export the configuration
 const config: Config = {
-  env: envVars.NODE_ENV,
-  port: envVars.PORT,
-  siteUrl: envVars.SITE_URL,
-  database: {
-    url: `${envVars.DATABASE_URL}`,
+  ENV: envVars.NODE_ENV,
+  PORT: envVars.PORT,
+  SITE_URL: envVars.SITE_URL,
+  DATABASE: {
+    URL: `${envVars.DATABASE_URL}`,
   },
-  jwt: {
-    secret: envVars.JWT_SECRET,
-    accessExpirationMinutes: envVars.JWT_ACCESS_EXPIRATION_MINUTES,
-    refreshExpirationMinutes: envVars.JWT_REFRESH_EXPIRATION_MINUTES,
-    resetPasswordExpirationMinutes:
+  JWT: {
+    SECRET: envVars.JWT_SECRET,
+    ACCESS_EXPIRATION_MINUTES: envVars.JWT_ACCESS_EXPIRATION_MINUTES,
+    REFRESH_EXPIRATION_MINUTES: envVars.JWT_REFRESH_EXPIRATION_MINUTES,
+    RESET_PASSWORD_EXPIRATION_MINUTES:
       envVars.JWT_RESET_PASSWORD_EXPIRATION_MINUTES,
-    userInviteExpirationMinutes: envVars.JWT_INVITE_USER_EXPIRATION_MINUTES,
+    USER_INVITE_EXPIRATION_MINUTES:
+      envVars.JWT_INVITE_USER_EXPIRATION_MINUTES,
   },
-  socialLogin: {
-    google: {
-      clientId: envVars.GOOGLE_CLIENT_ID,
-    },
+  AWS: {
+    ACCESS_KEY_ID: envVars.AWS_ACCESS_KEY_ID,
+    SECRET_ACCESS_KEY: envVars.AWS_SECRET_ACCESS_KEY,
+    S3_BUCKET: envVars.AWS_S3_BUCKET,
+    REGION: envVars.AWS_REGION,
   },
-  reCaptcha: {
-    secret: envVars.GOOGLE_RECAPTCHA_SECRET,
+  CRON: {
+    TOKEN_CLEANUP: envVars.CLEANUP_TOKENS_CRON,
+    SESSION_CLEANUP: envVars.CLEANUP_SESSIONS_CRON,
   },
-  aws: {
-    accessKeyId: envVars.AWS_ACCESS_KEY_ID,
-    secretAccessKey: envVars.AWS_SECRET_ACCESS_KEY,
-    s3Bucket: envVars.AWS_S3_BUCKET,
-    region: envVars.AWS_REGION,
+  AUTH: {
+    MAX_LOGIN_ATTEMPTS: envVars.MAX_LOGIN_ATTEMPTS,
+    LOCK_TIME_MINUTES: envVars.ACCOUNT_LOCK_TIME_MINUTES,
   },
-  cron: {
-    tokenCleanup: envVars.CLEANUP_TOKENS_CRON,
-  }
+  COOKIE: {
+    DOMAIN: envVars.COOKIE_DOMAIN,
+  },
+  CORS: {
+    ALLOWED_ORIGINS: (envVars.ALLOWED_ORIGINS as string)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
 };
 
 export default config;
