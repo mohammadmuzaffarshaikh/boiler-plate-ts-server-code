@@ -16,13 +16,6 @@ interface JwtConfig {
   USER_INVITE_EXPIRATION_MINUTES: number;
 }
 
-interface AwsConfig {
-  ACCESS_KEY_ID?: string;
-  SECRET_ACCESS_KEY?: string;
-  S3_BUCKET?: string;
-  REGION?: string;
-}
-
 interface CronConfig {
   TOKEN_CLEANUP: string;
   SESSION_CLEANUP: string;
@@ -47,7 +40,6 @@ interface Config {
   SITE_URL?: string;
   DATABASE: DatabaseConfig;
   JWT: JwtConfig;
-  AWS: AwsConfig;
   CRON: CronConfig;
   AUTH: AuthConfig;
   COOKIE: CookieConfig;
@@ -77,11 +69,6 @@ const envVarsSchema = Joi.object({
     .default(60 * 24 * 7)
     .description("minutes after which invite user token expires"),
 
-  AWS_ACCESS_KEY_ID: Joi.string().description("Aws access key"),
-  AWS_SECRET_ACCESS_KEY: Joi.string().description("Aws secret access key"),
-  AWS_S3_BUCKET: Joi.string().description("Aws S3 bucket name"),
-  AWS_REGION: Joi.string().description("Aws region"),
-
   CLEANUP_TOKENS_CRON: Joi.string()
     .description("CRON expression for token cleanup job")
     .default("0 0 * * *"),
@@ -96,9 +83,11 @@ const envVarsSchema = Joi.object({
     .default(15)
     .description("Minutes to lock the account after exceeding attempts"),
 
-  COOKIE_DOMAIN: Joi.string().description(
-    "Optional cookie domain (e.g. .example.com) for production cross-subdomain cookies"
-  ),
+  COOKIE_DOMAIN: Joi.string()
+    .description(
+      "Optional cookie domain (e.g. .example.com) for production cross-subdomain cookies",
+    )
+    .optional(),
 
   ALLOWED_ORIGINS: Joi.string()
     .default("")
@@ -126,14 +115,7 @@ const config: Config = {
     REFRESH_EXPIRATION_MINUTES: envVars.JWT_REFRESH_EXPIRATION_MINUTES,
     RESET_PASSWORD_EXPIRATION_MINUTES:
       envVars.JWT_RESET_PASSWORD_EXPIRATION_MINUTES,
-    USER_INVITE_EXPIRATION_MINUTES:
-      envVars.JWT_INVITE_USER_EXPIRATION_MINUTES,
-  },
-  AWS: {
-    ACCESS_KEY_ID: envVars.AWS_ACCESS_KEY_ID,
-    SECRET_ACCESS_KEY: envVars.AWS_SECRET_ACCESS_KEY,
-    S3_BUCKET: envVars.AWS_S3_BUCKET,
-    REGION: envVars.AWS_REGION,
+    USER_INVITE_EXPIRATION_MINUTES: envVars.JWT_INVITE_USER_EXPIRATION_MINUTES,
   },
   CRON: {
     TOKEN_CLEANUP: envVars.CLEANUP_TOKENS_CRON,
