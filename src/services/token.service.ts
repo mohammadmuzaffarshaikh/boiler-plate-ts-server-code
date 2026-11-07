@@ -1,243 +1,153 @@
+import crypto from "node:crypto";
 import httpStatus from "http-status";
 import jwt from "jsonwebtoken";
 import moment from "moment";
 import config from "../config/config";
-import { tokenTypes } from "../config/token";
-import { prisma } from "../utils/prisma-client";
+import { tokenTypes, TokenType, Role } from "../config/constants";
+import { prisma } from "../config/prisma-client";
 import ApiError from "../utils/api-error";
-import { TokenTypes } from "@prisma/client/default";
+import { hashToken } from "../utils/hash";
+import { TokenTypes } from "@prisma/client";
 
-// JWT payload shape
-interface TokenPayload {
-  sub: string; // user ID
-  org: string;
-  iat: number; // issued at (unix)
-  exp: number; // expires at (unix)
-  type: string; // token type (e.g. ACCESS)
+export interface TokenPayload {
+  sub: string;
+  role?: Role;
+  iat: number;
+  exp: number;
+  type: TokenType;
+
+  /**
+   * The `sessions` row this token belongs to. Present on ACCESS tokens only.
+   *
+   * This is what makes an access token revocable. Without it the token is a
+   * self-contained claim that nothing can withdraw before it expires, so
+   * logging out, resetting a password, or revoking every session for a
+   * compromised account all had no effect for the rest of the token's
+   * lifetime. `config/passport.ts` resolves this claim on every authenticated
+   * request and refuses a token whose session is gone, revoked or expired.
+   */
+  sid?: string;
+
+  /**
+   * A nonce, on the token types that are STORED.
+   *
+   * Without it a token is a pure function of `(sub, type, iat, exp)`, and
+   * `iat`/`exp` have one-second resolution — so two tokens minted for the
+   * same user inside the same second are byte-identical. `sessions.refresh_token`
+   * is a unique index on the digest of that value, which turned a perfectly
+   * ordinary event into a 409: signing in from a second device, or a
+   * double-submitted login form, failed on a unique constraint. Two reset
+   * tokens issued in the same second likewise collapsed into one row.
+   */
+  jti?: string;
 }
 
-/**
- * Generate a JWT token
- * @param userId - The user ID to encode as `sub`
- * @param orgId - The organization ID to encode as `org`
- * @param expires - Expiry moment object (defaults to 1 hour from now)
- * @param type - Token type (e.g. "ACCESS", "REFRESH")
- * @param secret - Secret key (default = config.jwt.secret)
- * @returns Signed JWT string
- */
-export const generateToken = (
+const sign = (
   userId: string,
-  orgId: string,
-  expires: moment.Moment = moment().add(1, "hour"),
-  type: string,
-  secret: string = config.jwt.secret
+  expires: moment.Moment,
+  type: TokenType,
+  extra: { role?: Role; sid?: string; jti?: string } = {},
+  secret: string = config.JWT.SECRET
 ): string => {
   const payload: TokenPayload = {
     sub: userId,
-    org: orgId,
     iat: moment().unix(),
     exp: expires.unix(),
     type,
+    ...extra,
   };
-
   return jwt.sign(payload, secret);
 };
 
 /**
- * Save a token to db
- * @param userId - The user ID to encode as `sub`
- * @param orgId - The organization ID to encode as `org`
- * @param expires - Expiry date
- * @param type - Token type (e.g. "REFRESH", "RESET_PASSWORD")
- * @param token - token to store
- * @returns void
+ * Mint an access token bound to a session.
+ *
+ * `sessionId` is REQUIRED, and deliberately has no default. It is the only
+ * thing that makes the resulting token revocable, so a caller that cannot
+ * name a session must not be able to produce a token by omitting it — the
+ * compiler is a better place to catch that than a security review is. Both
+ * callers already hold the row: `sessionService.issueAuthSession` creates it
+ * first, and the refresh path looked it up to get here.
  */
-export const saveToken = async (
+export const generateAccessToken = (
   userId: string,
-  token: string,
-  expires: Date,
-  type: TokenTypes,
-  orgId?: string
+  role: Role,
+  sessionId: string
 ) => {
+  const expires = moment().add(
+    config.JWT.ACCESS_EXPIRATION_MINUTES,
+    "minutes"
+  );
+  const token = sign(userId, expires, tokenTypes.ACCESS, {
+    role,
+    sid: sessionId,
+  });
+  return { token, expires: expires.toDate() };
+};
+
+export const generateRefreshToken = (userId: string) => {
+  const expires = moment().add(
+    config.JWT.REFRESH_EXPIRATION_MINUTES,
+    "minutes"
+  );
+  // `jti` is what makes two refresh tokens for the same user distinguishable
+  // inside one second — see the claim's comment above. It is load-bearing:
+  // `sessions.refresh_token` is unique on the digest.
+  const token = sign(userId, expires, tokenTypes.REFRESH, {
+    jti: crypto.randomUUID(),
+  });
+  return { token, expires: expires.toDate() };
+};
+
+export const generateResetPasswordToken = async (userId: string) => {
+  const expires = moment().add(
+    config.JWT.RESET_PASSWORD_EXPIRATION_MINUTES,
+    "minutes"
+  );
+  const token = sign(userId, expires, tokenTypes.RESET_PASSWORD, {
+    jti: crypto.randomUUID(),
+  });
+
   await prisma.token.create({
     data: {
-      token,
-      expires,
-      type,
+      // The digest, never the token. The caller gets the real one back to
+      // put in the email; the row keeps only something to match it against.
+      token: hashToken(token),
+      expires: expires.toDate(),
+      type: tokenTypes.RESET_PASSWORD,
       user: { connect: { id: userId } },
-      ...(orgId && { organization: { connect: { id: orgId } } }),
     },
   });
+
+  return { resetPasswordToken: token, expires: expires.toDate() };
 };
 
-/**
- * Fetch all tokens from db related to user or type or organization
- * @param userId - The user ID to encode as `sub`
- * @param organizationId - The organization ID to encode as `org`
- * @param type - Token type (e.g. "REFRESH", "RESET_PASSWORD")
- * @returns Array of all tokens from db related to user and type
- */
-export const getTokens = async (
-  userId?: string,
-  type?: TokenTypes,
-  organizationId?: string
-) => {
-  return prisma.token.findMany({
-    where: {
-      ...(userId && { userId }),
-      ...(type && { type }),
-      ...(organizationId && { organizationId }),
-    },
-  });
-};
-
-/**
- * Generate an access token and its expiry time
- * @param userId - The user ID
- * @param orgId - The organization ID
- * @returns Access token and expiry date
- */
-export const generateAuthTokens = async (userId: string, orgId: string) => {
-  const accessTokenExpires = moment().add(
-    config.jwt.accessExpirationMinutes,
-    "minutes"
-  );
-
-  const accessToken = generateToken(
-    userId,
-    orgId,
-    accessTokenExpires,
-    tokenTypes.ACCESS
-  );
-
-  return {
-    token: accessToken,
-    expires: accessTokenExpires.toDate(),
-  };
-};
-
-/**
- * Generate an refresh token and its expiry time
- * @param userId - The user ID
- * @param orgId - The organization ID
- * @returns Refresh token and expiry date
- */
-export const generateRefreshTokens = async (userId: string, orgId: string) => {
-  const refreshTokenExpires = moment().add(
-    config.jwt.refreshExpirationMinutes,
-    "minutes"
-  );
-
-  const refreshToken = generateToken(
-    userId,
-    orgId,
-    refreshTokenExpires,
-    tokenTypes.REFRESH
-  );
-
-  await saveToken(
-    userId,
-    refreshToken,
-    refreshTokenExpires.toDate(),
-    tokenTypes.REFRESH,
-    orgId
-  );
-
-  return {
-    refreshToken,
-    refreshExpires: refreshTokenExpires.toDate(),
-  };
-};
-
-export const generateResetPasswordToken = async (
-  userId: string,
-  orgId: string
-) => {
-  const resetPasswordTokenExpires = moment().add(
-    config.jwt.resetPasswordExpirationMinutes,
-    "minutes"
-  );
-
-  const resetPasswordToken = generateToken(
-    userId,
-    orgId,
-    resetPasswordTokenExpires,
-    tokenTypes.RESET_PASSWORD
-  );
-
-  await saveToken(
-    userId,
-    resetPasswordToken,
-    resetPasswordTokenExpires.toDate(),
-    tokenTypes.RESET_PASSWORD,
-    orgId
-  );
-
-  return {
-    resetPasswordToken,
-    expires: resetPasswordTokenExpires.toDate(),
-  };
-};
-
-/**
- * Validate stored tokens, don't use this function for access or MFA tokens
- * @param token - The token
- * @param type - The token type
- * @returns token if valid, otherwise throws an error
- */
-export const validateStoredToken = async (token: string, type: TokenTypes) => {
-  let payload: TokenPayload;
-
+export const verifyJwt = (token: string): TokenPayload => {
   try {
-    payload = jwt.verify(token, config.jwt.secret) as TokenPayload;
+    return jwt.verify(token, config.JWT.SECRET) as TokenPayload;
   } catch {
     throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid or expired token.");
   }
+};
 
-  const tokens = await getTokens(
-    payload.sub.toString(),
-    type,
-    payload.org?.toString()
-  );
+export const validateStoredToken = async (token: string, type: TokenTypes) => {
+  const payload = verifyJwt(token);
 
-  const matchedToken = tokens.find((tk) => tk.token === token);
-  if (!matchedToken) {
+  const stored = await prisma.token.findFirst({
+    where: { token: hashToken(token), type, userId: payload.sub.toString() },
+  });
+
+  if (!stored) {
     throw new ApiError(httpStatus.UNAUTHORIZED, "Invalid or expired token.");
   }
 
-  return matchedToken;
+  return stored;
 };
 
-/**
- * Delete all tokens related to user and type
- * @param userId - The user ID
- * @param type - The token type (e.g. "REFRESH", "RESET_PASSWORD")
- * @param organizationId - The organization ID (optional)
- * @returns void
- */
-export const deleteTokens = async (
-  userId: string,
-  type: TokenTypes,
-  organizationId?: string
-) => {
-  await prisma.token.deleteMany({
-    where: {
-      userId,
-      type,
-      ...(organizationId && { organizationId }),
-    },
-  });
+export const deleteTokens = async (userId: string, type: TokenTypes) => {
+  await prisma.token.deleteMany({ where: { userId, type } });
 };
 
-/**
- * Delete one token related to user and type
- * @param id - The token ID to delete
- * @returns void
- */
 export const deleteToken = async (id: string) => {
-  await prisma.token.delete({
-    where: {
-      id,
-    },
-  });
+  await prisma.token.delete({ where: { id } });
 };

@@ -1,0 +1,32 @@
+model File {
+  id           String     @id @default(uuid())
+  key          String     @unique                  // R2 object key, e.g. product_images/blue-hoodie-<uuid>.jpg
+  url          String                              // public URL on the custom domain
+  // Destination bucket folder, and the key's prefix. A plain String rather
+  // than an enum: the set lives in `uploadFolders` (src/config/constants),
+  // is enforced by Joi and re-checked in the service, and adding the fifth
+  // folder should not need a schema migration. Also the only field a client
+  // chooses — see the allowlist note there.
+  folder       String
+  originalName String                              @map("original_name")
+  mimeType     String                              @map("mime_type")
+  size         Int                                 // bytes
+  etag         String?
+  status       FileStatus @default(UNUSED)
+
+  uploadedById String? @map("uploaded_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  // SetNull, not Cascade: removing a staff account must not take the product
+  // images they uploaded down with it.
+  uploadedBy User? @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+
+  // Exactly the cron sweep's query shape: status IN (...) AND createdAt < cutoff.
+  @@index([status, createdAt])
+  // The list endpoint's shape: one folder, optionally one status, newest first.
+  @@index([folder, status, createdAt])
+  @@index([uploadedById])
+  @@map("files")
+}

@@ -10,7 +10,13 @@ yarn-error.log
 .env*
 !.env*.example
 
+# os / editor
+.DS_Store
+
 # Code coverage
 coverage
 
 /src/generated/prisma
+
+# Claude Code local overrides (may hold credentials)
+.claude/settings.local.json

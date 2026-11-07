@@ -1,5 +1,6 @@
 import Joi, { ObjectSchema } from "joi";
-import { password, objectId } from "./custom.validation";
+import { password } from "./custom.validation";
+import { roles } from "../config/constants";
 
 // Define the interface for validation schemas
 interface ValidationSchema {
@@ -8,6 +9,16 @@ interface ValidationSchema {
   params?: ObjectSchema;
 }
 
+/**
+ * Every id in this project is a Postgres uuid (`@default(uuid())`), so route
+ * params are validated with Joi's built-in matcher. There used to be a shared
+ * `objectId` helper here that matched a 24-character hexadecimal Mongo
+ * ObjectId — carried over from a Mongoose codebase, it would have rejected
+ * every id this API can produce. `Joi.string().uuid()` accepts v4 (what
+ * Prisma generates today) and v7, and rejects a Mongo id.
+ */
+const uuid = Joi.string().uuid();
+
 // Create the validation schemas with proper types
 const createUser: ValidationSchema = {
   body: Joi.object({
@@ -15,7 +26,7 @@ const createUser: ValidationSchema = {
     password: Joi.string().required().custom(password),
     firstName: Joi.string().required(),
     lastName: Joi.string().required(),
-    role: Joi.string().required().valid("user", "admin"),
+    role: Joi.string().required().valid(...roles),
   }),
 };
 
@@ -24,7 +35,7 @@ const inviteUser: ValidationSchema = {
     email: Joi.string().required().email(),
     firstName: Joi.string().required(),
     lastName: Joi.string().required(),
-    role: Joi.string().valid("admin", "user", "manager"),
+    role: Joi.string().valid(...roles),
   }),
 };
 
@@ -50,13 +61,13 @@ const getUsers: ValidationSchema = {
 
 const getUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.string().custom(objectId),
+    userId: uuid.required(),
   }),
 };
 
 const updateUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.required().custom(objectId),
+    userId: uuid.required(),
   }),
   body: Joi.object()
     .keys({
@@ -71,36 +82,24 @@ const updateUser: ValidationSchema = {
 
 const deactivateAndReactivateUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.required().custom(objectId),
+    userId: uuid.required(),
   }),
 };
 
 const updateUserRole: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.required().custom(objectId),
+    userId: uuid.required(),
   }),
   body: Joi.object()
     .keys({
-      role: Joi.string().required().valid("admin", "manager", "user"),
-    })
-    .min(1),
-};
-
-const updateOrg: ValidationSchema = {
-  params: Joi.object({
-    orgId: Joi.required().custom(objectId),
-  }),
-  body: Joi.object()
-    .keys({
-      email: Joi.string().email(),
-      name: Joi.string(),
+      role: Joi.string().required().valid(...roles),
     })
     .min(1),
 };
 
 const deleteUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.string().custom(objectId),
+    userId: uuid.required(),
   }),
 };
 
@@ -109,7 +108,6 @@ export default {
   getUsers,
   getUser,
   updateUser,
-  updateOrg,
   deleteUser,
   inviteUser,
   activateUser,

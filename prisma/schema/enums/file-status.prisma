@@ -1,0 +1,13 @@
+enum FileStatus {
+  // Uploaded, but not yet attached to anything. The cron sweep deletes rows
+  // that are still UNUSED after the grace period, along with their objects.
+  UNUSED
+
+  // Referenced by a product (or another entity). Never swept.
+  IN_USE
+
+  // Marked for deletion BEFORE the object is removed from R2, so a crash
+  // mid-delete leaves a row the cron retries rather than a live row pointing
+  // at an object that no longer exists.
+  PENDING_DELETE
+}

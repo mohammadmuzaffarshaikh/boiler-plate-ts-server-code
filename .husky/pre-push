@@ -1,0 +1,23 @@
+# Pre-push gate: nothing leaves this machine until it type-checks, lints and passes its tests.
+# Bypass with `git push --no-verify` only when you know why.
+#
+# husky runs this with `sh -e`, so any failing command aborts the push on its own.
+# Ordered cheapest-first, so the common failures surface in seconds rather than after the suite.
+#
+# `pnpm test` includes the integration specs, which need PostgreSQL running and migrated:
+#   docker start boilerplate-pg && pnpm prisma:migrate
+# They say so themselves if it is down (see `assertDatabaseReachable` in tests/helpers/db.ts),
+# so there is no separate check here.
+
+echo "pre-push (1/4): pnpm typecheck"
+pnpm typecheck
+
+# `typecheck` covers src only -- the tests have their own tsconfig and are otherwise unchecked.
+echo "pre-push (2/4): pnpm typecheck:tests"
+pnpm typecheck:tests
+
+echo "pre-push (3/4): pnpm lint"
+pnpm lint
+
+echo "pre-push (4/4): pnpm test"
+pnpm test

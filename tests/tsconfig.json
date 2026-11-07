@@ -1,0 +1,15 @@
+{
+  // This file exists for the editor, not for the build.
+  //
+  // The root tsconfig.json is `"include": ["src"]` so that `tsc` emits a clean
+  // dist/. That leaves every file under tests/ outside any known project, so a
+  // language server falls back to an inferred project with no `types` and
+  // reports `Cannot find name 'describe'` on all of them -- while
+  // `pnpm typecheck:tests` passes, because that uses tsconfig.test.json.
+  //
+  // VS Code resolves a file against the nearest tsconfig.json walking upwards,
+  // so putting one here points the editor at the same settings jest uses.
+  // Nothing in the build or in CI reads it: `pnpm typecheck` is -p
+  // tsconfig.json and `pnpm typecheck:tests` is -p tsconfig.test.json.
+  "extends": "../tsconfig.test.json"
+}

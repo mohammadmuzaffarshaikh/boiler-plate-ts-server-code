@@ -1,0 +1,21 @@
+-- `auth_codes.session_id` stops being a foreign key.
+--
+-- WHY. The column records which session an authorization code redeemed into,
+-- and that record is what lets a replayed code revoke the session the first
+-- redemption produced. As a foreign key it could only be written AFTER the
+-- session row existed, which meant a second UPDATE after the INSERT — and the
+-- loser of a redemption race could land between the two, read NULL, and
+-- revoke nothing. That is precisely the interleaving the revocation exists
+-- for, so the mechanism failed in its own case.
+--
+-- Dropping the constraint lets the id be written inside the same statement
+-- that claims the code, which closes the window entirely.
+--
+-- Nothing depends on the referential integrity being removed here: the column
+-- is never joined on, and `revokeSessionById` is an `updateMany`, so an id
+-- whose session has already been swept away is a no-op rather than an error.
+-- The ON DELETE SET NULL behaviour is not missed either — its job was to stop
+-- the nightly session sweep from erasing a code's record of having been
+-- redeemed, and a plain column is not erased by anything.
+
+ALTER TABLE "auth_codes" DROP CONSTRAINT "auth_codes_session_id_fkey";
