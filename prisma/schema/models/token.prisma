@@ -1,0 +1,29 @@
+model Token {
+  id        String     @id @default(uuid())
+  userId    String     @map("user_id")
+  token     String
+  type      TokenTypes
+  expires   DateTime
+  createdAt DateTime   @default(now()) @map("created_at")
+  revokedAt DateTime?  @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // This table had no index at all beyond its primary key, so all three of
+  // the queries that touch it were sequential scans that got slower with
+  // every row ever written.
+  //
+  // `token` is unique rather than merely indexed because it is a sha256
+  // digest of a signed JWT: two rows holding the same digest are the same
+  // credential, and `validateStoredToken` would have had to pick one. The
+  // constraint is only safe to add because every stored token now carries a
+  // random `jti` (docs/decisions.md §20) — before that, two resets issued in
+  // the same second produced identical tokens.
+  @@unique([token])
+  // `deleteTokens(userId, type)`, which runs on every completed reset.
+  @@index([userId, type])
+  // The nightly `expires < now` sweep. Mirrors `@@index([expiresAt])` on
+  // `sessions`, which exists for exactly the same job.
+  @@index([expires])
+  @@map("tokens")
+}

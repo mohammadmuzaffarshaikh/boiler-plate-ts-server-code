@@ -1,0 +1,15 @@
+/// What a row in `users` is allowed to be.
+///
+/// There is deliberately no CUSTOMER here. `users` is the STAFF table: every
+/// row in it is somebody who works on the business. Shoppers live in their own
+/// table with their own lifecycle, their own credentials and their own
+/// sessions — see docs/decisions.md §2 for why the two cannot be one table.
+///
+/// The shape of this enum is therefore load-bearing, not cosmetic. Adding a
+/// CUSTOMER value back would silently re-create the single-account model the
+/// split exists to avoid, and would do it without a schema review, because
+/// every `Record<Role, …>` in src/ would still compile.
+enum Role {
+  STAFF
+  ADMIN
+}

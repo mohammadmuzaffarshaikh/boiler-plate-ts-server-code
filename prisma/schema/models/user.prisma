@@ -1,0 +1,46 @@
+/// A member of staff. NOT a shopper.
+///
+/// This table backs the administration app only (`/api/app/...`). Customers
+/// are a separate table with separate credentials and separate sessions, and
+/// there is no foreign key between the two: a staff member who also shops has
+/// one row here and one row there, deliberately unlinked. The driver is a
+/// single requirement — a deactivated employee must still be able to buy
+/// things — and that is only coherent if "deactivated" is a fact about an
+/// employee rather than about a shopper. docs/decisions.md §2 has the detail.
+model User {
+  id        String  @id @default(uuid())
+  email     String  @unique
+  password  String
+  firstName String? @map("first_name")
+  lastName  String? @map("last_name")
+  role      Role    @default(STAFF)
+
+  // Proof the mailbox is controlled, set only by a verification round-trip or
+  // by a Google sign-in (which asserts email_verified). ADMIN accounts are
+  // exempt from the access gate, but are NOT stamped here — stamping would
+  // assert a verification that never happened.
+  emailVerifiedAt DateTime? @map("email_verified_at")
+
+  googleId     String?      @unique      @map("google_id")
+  authProvider AuthProvider @default(LOCAL) @map("auth_provider")
+
+  // Failed-login state. `lastFailedLoginAt` makes the counter a sliding
+  // window rather than a lifetime total: failures older than
+  // ACCOUNT_LOCK_TIME_MINUTES no longer count. Without it, ten typos spread
+  // over a year lock the account, and — worse — the counter stays at the
+  // maximum after a lock expires, so the very next typo re-locks
+  // immediately, forever.
+  loginAttempts     Int       @default(0) @map("login_attempts")
+  lastFailedLoginAt DateTime? @map("last_failed_login_at")
+  lockUntil         DateTime? @map("lock_until")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt      @map("updated_at")
+
+  Token    Token[]
+  Session  Session[]
+  File     File[]
+  AuthCode AuthCode[]
+
+  @@map("users")
+}

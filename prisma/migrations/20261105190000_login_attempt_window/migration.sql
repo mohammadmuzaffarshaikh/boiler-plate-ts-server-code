@@ -1,0 +1,16 @@
+-- Sliding window for the failed-login counter.
+--
+-- `login_attempts` was a lifetime total: nothing but a successful login ever
+-- reset it. Two consequences, both bugs. Failures spread over months still
+-- accumulated to a lockout, and once an account had been locked the counter
+-- stayed at the maximum — so the first typo after the lock expired re-locked
+-- it, indefinitely.
+--
+-- With this column the counter only accrues within ACCOUNT_LOCK_TIME_MINUTES
+-- of the last failure, which also makes the post-lock reset fall out for
+-- free: by the time a lock expires, the window has expired with it.
+--
+-- Nullable with no default and no backfill on purpose. NULL means "no recent
+-- failure", so every existing row starts the window clean, which is the
+-- behaviour we want for accounts stuck at the old lifetime maximum.
+ALTER TABLE "users" ADD COLUMN "last_failed_login_at" TIMESTAMP(3);

@@ -13,7 +13,10 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "lib": ["es2020", "dom"],
+    // es2022 is types-only (emit is governed by "target" above). Node 20
+    // implements all of ES2022, and without it `new Error(msg, { cause })` is
+    // a type error while ESLint's preserve-caught-error rule demands it.
+    "lib": ["es2022", "dom"],
     "typeRoots": ["./node_modules/@types"],
   },
   "include": ["src"],

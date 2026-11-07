@@ -1,0 +1,4 @@
+enum TokenTypes {
+  RESET_PASSWORD
+  VERIFY_EMAIL
+}

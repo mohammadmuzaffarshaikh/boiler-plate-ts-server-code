@@ -1,0 +1,14 @@
+{
+  // tsc's own `include` is src-only so the build output stays clean; ts-jest
+  // uses this one instead, which adds the tests themselves and the jest types.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["jest", "node"]
+  },
+  // `prisma` is here and not in tsconfig.json because the seed is a script,
+  // not build output — but it imports from src, is covered by a spec, and was
+  // previously typechecked by nothing at all.
+  "include": ["src", "tests", "prisma", "jest.config.ts"]
+}

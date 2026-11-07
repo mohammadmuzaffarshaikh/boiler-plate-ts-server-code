@@ -1,46 +1,28 @@
 import express, { Router } from "express";
-import authRoute from "./auth.routes";
-import logger from "../config/logger";
-
-// Define type for the route structure
-interface Route {
-  path: string;
-  route: Router;
-}
+import appRoutes from "./app";
+import storeRoutes from "./store";
 
 const router: Router = express.Router();
 
-// Validate path format
-const isValidPath = (path: string): boolean => {
-  return /^\/[a-zA-Z0-9\-_/]*$/.test(path);
-};
-
-const defaultRoutes: Route[] = [
-  {
-    path: "/auth",
-    route: authRoute,
-  },
-];
-
-// Mount routes with validation
-defaultRoutes.forEach((route) => {
-  try {
-    const path = route.path.startsWith("/") ? route.path : `/${route.path}`;
-    
-    if (!isValidPath(path)) {
-      throw new Error(`Invalid path format: ${path}`);
-    }
-
-    
-    // Use more specific route mounting
-    router.use(path, (req, res, next) => {
-      route.route(req, res, next);
-    });
-
-  } catch (error) {
-    logger.error(`Failed to mount route ${route.path}:`, error);
-    process.exit(1); // Exit if route mounting fails
-  }
-});
+// The API has exactly two namespaces, and which one an endpoint lives in is
+// a statement about who may call it:
+//
+//   /api/app    the administration app. Authenticates against `users`, which
+//               holds staff and nobody else.
+//   /api/store  the storefront. Authenticates against customers, who are a
+//               separate table with a separate signing secret. Nothing is
+//               mounted here yet — see src/routes/store/index.ts.
+//
+// Nothing is mounted at the bare `/api` root any more. The old `/api/auth`
+// and `/api/files` were unprefixed and therefore said nothing about their
+// audience; `tests/integration/*.routes.test.ts` pins that they are gone,
+// because a path that quietly keeps working is how two namespaces drift back
+// into one.
+//
+// NOTE: /api/health is NOT here. It is mounted in app.ts ahead of the global
+// rate limiter, so a load balancer polling it cannot be throttled out of its
+// own health check.
+router.use("/app", appRoutes);
+router.use("/store", storeRoutes);
 
 export default router;

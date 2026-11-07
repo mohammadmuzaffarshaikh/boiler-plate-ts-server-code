@@ -1,0 +1,87 @@
+/// A single-use authorization code, traded for bearer tokens by a native client.
+///
+/// WHY THIS EXISTS. `/auth/login` used to return the access and refresh tokens
+/// in the JSON body *and* set them as httpOnly cookies. The body copy hands any
+/// XSS in the admin SPA both credentials directly, which is the exact attack
+/// `httpOnly` exists to prevent — the flag protects the cookie and then the
+/// same secret is printed next to it in a response JavaScript can read.
+///
+/// The body copy was there for clients with no cookie jar. So the two cases are
+/// now separated at the door: a browser login sets cookies and gets no tokens
+/// at all, and a native login gets one of these codes and trades it here. See
+/// docs/decisions.md §28.
+///
+/// NOT a row in `tokens`. That table describes credentials sent to a mailbox —
+/// a reset link, a verification link — which are long-lived by comparison,
+/// delivered out of band, and have no PKCE binding, no consumption record and
+/// no session to point at. Sharing the table would mean four nullable columns
+/// that are only ever set for one `type`, and a `where` clause on every query
+/// that has to remember to filter by it.
+model AuthCode {
+  id     String @id @default(uuid())
+  userId String @map("user_id")
+
+  /// sha256 digest of the code, never the code itself — the same rule as
+  /// `sessions.refresh_token` and `tokens.token`. A leaked row, a verbose
+  /// query log or a screenshot of Prisma Studio must not be a credential.
+  /// Unique because two rows with one digest are one code.
+  code String @unique
+
+  /// The PKCE challenge: base64url(sha256(verifier)), method S256 only.
+  ///
+  /// The client invents a verifier before it logs in, sends only this hash,
+  /// and must produce the verifier to redeem the code. A code intercepted in
+  /// transit — a proxy, a log, a custom-scheme redirect another app on the
+  /// device registered — is then useless on its own.
+  ///
+  /// `plain` is deliberately not supported: it makes the challenge and the
+  /// verifier the same string, so anyone who sees one has the other.
+  codeChallenge String @map("code_challenge")
+
+  /// Seconds, not minutes. The code exists only to survive the round trip
+  /// from the login response to the next request.
+  expiresAt DateTime @map("expires_at")
+
+  /// Set the moment the code is redeemed, by a conditional update that is the
+  /// single-use guarantee — see `consumeAuthCode`. A second redemption finds
+  /// this already set and is refused.
+  consumedAt DateTime? @map("consumed_at")
+
+  /// The session minted from this code, written by the same statement that
+  /// claims the code.
+  ///
+  /// This is what gives replay detection teeth. A code arriving twice means
+  /// two parties hold it, and the first redemption is the one that cannot be
+  /// trusted — so the session it produced is revoked rather than left running.
+  /// Null until redeemed, and null forever for a code that never was.
+  ///
+  /// A FOREIGN KEY, and that is now doing real work. The session is created
+  /// BEFORE the code is claimed, so this column can only ever name a row that
+  /// exists — and the constraint is what makes that a guarantee rather than a
+  /// convention. Write the two in the other order and every redemption fails
+  /// loudly at the database instead of silently leaving a replay with nothing
+  /// to revoke, which is how the ordering was got wrong twice.
+  ///
+  /// (Migration `20261107120000_auth_code_session_id_plain` dropped this
+  /// constraint and `20261107130000_auth_code_session_fk` puts it back. The
+  /// first was written for a design where the claim named a session that did
+  /// not exist yet — which turned out to be the bug, not the fix.)
+  sessionId String? @map("session_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+
+  /// `SetNull`, not `Cascade`. When the nightly sweep deletes a session, this
+  /// row's record of having been redeemed must survive it — a row that
+  /// vanished with its session would let a replayed code look unused. It also
+  /// does the disowning for free in the one case that needs it: a redemption
+  /// that claims the code and then fails on the verifier deletes the session
+  /// it had speculatively created, and this column follows it to null.
+  @@index([userId])
+  /// The expiry sweep. These rows are created on every native login and are
+  /// dead within a minute, so this is the highest-churn table in the schema.
+  @@index([expiresAt])
+  @@map("auth_codes")
+}

@@ -1,5 +1,5 @@
 import Joi, { ObjectSchema } from "joi";
-import { password, objectId } from "./custom.validation";
+import { password } from "./custom.validation";
 import { roles } from "../config/constants";
 
 // Define the interface for validation schemas
@@ -8,6 +8,16 @@ interface ValidationSchema {
   query?: ObjectSchema;
   params?: ObjectSchema;
 }
+
+/**
+ * Every id in this project is a Postgres uuid (`@default(uuid())`), so route
+ * params are validated with Joi's built-in matcher. There used to be a shared
+ * `objectId` helper here that matched a 24-character hexadecimal Mongo
+ * ObjectId — carried over from a Mongoose codebase, it would have rejected
+ * every id this API can produce. `Joi.string().uuid()` accepts v4 (what
+ * Prisma generates today) and v7, and rejects a Mongo id.
+ */
+const uuid = Joi.string().uuid();
 
 // Create the validation schemas with proper types
 const createUser: ValidationSchema = {
@@ -51,13 +61,13 @@ const getUsers: ValidationSchema = {
 
 const getUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.string().custom(objectId),
+    userId: uuid.required(),
   }),
 };
 
 const updateUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.required().custom(objectId),
+    userId: uuid.required(),
   }),
   body: Joi.object()
     .keys({
@@ -72,13 +82,13 @@ const updateUser: ValidationSchema = {
 
 const deactivateAndReactivateUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.required().custom(objectId),
+    userId: uuid.required(),
   }),
 };
 
 const updateUserRole: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.required().custom(objectId),
+    userId: uuid.required(),
   }),
   body: Joi.object()
     .keys({
@@ -89,7 +99,7 @@ const updateUserRole: ValidationSchema = {
 
 const deleteUser: ValidationSchema = {
   params: Joi.object({
-    userId: Joi.string().custom(objectId),
+    userId: uuid.required(),
   }),
 };
 
